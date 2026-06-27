@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#efefef" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="家計簿" />
+<title>家計簿</title>
+<link rel="manifest" href="manifest.json" />
+<link rel="apple-touch-icon" href="icon-180.png" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Hiragino Kaku Gothic ProN','Hiragino Sans','Meiryo',sans-serif;
+    background: #efefef; color: rgba(0,0,0,0.62);
+    -webkit-font-smoothing: antialiased; -webkit-text-size-adjust: 100%;
+  }
+  button { -webkit-tap-highlight-color: transparent; font-family: inherit; }
+  input, textarea { font-family: inherit; }
+  textarea { resize: none; }
+  #root { max-width: 412px; margin: 0 auto; padding: max(env(safe-area-inset-top),24px) 16px calc(56px + env(safe-area-inset-bottom)); }
+  .col { width: 100%; max-width: 380px; margin: 0 auto; }
+
+  .header { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 14px; }
+  .title { font-size: 17px; font-weight: 700; letter-spacing: .05em; color: rgba(0,0,0,0.65); margin-bottom: 2px; }
+  .subdate { font-size: 11px; color: rgba(0,0,0,0.33); }
+  .sectabs { display: flex; gap: 4px; padding-top: 3px; flex-shrink: 0; }
+  .sectab { padding: 5px 10px; background: rgba(0,0,0,0.04); border: none; border-radius: 8px; font-size: 11px; font-weight: 400; color: rgba(0,0,0,0.4); cursor: pointer; white-space: nowrap; }
+  .sectab.active { background: rgba(0,0,0,0.09); font-weight: 600; color: rgba(0,0,0,0.65); }
+
+  .scrolltab { display: flex; gap: 4px; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; margin-bottom: 14px; }
+  .scrolltab::-webkit-scrollbar { display: none; }
+  .tab {
+    flex-shrink: 0; min-width: 56px; padding: 7px 12px; border-radius: 9px;
+    background: transparent; border: 1px solid transparent;
+    font-size: 12px; font-weight: 400; color: rgba(0,0,0,0.35); cursor: pointer; white-space: nowrap;
+  }
+  .tab.active { background: rgba(255,255,255,0.92); border: 1px solid rgba(0,0,0,0.07); font-weight: 600; color: rgba(0,0,0,0.65); }
+
+  .monthnav { display: flex; align-items: center; gap: 4px; margin-bottom: 12px; }
+  .monthnav .nb {
+    background: rgba(255,255,255,0.92); border: 1px solid rgba(0,0,0,0.07); border-radius: 9px;
+    width: 30px; height: 30px; font-size: 15px; color: rgba(0,0,0,0.35); cursor: pointer;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .monthnav .nb[disabled] { opacity: .3; cursor: default; }
+  .monthnav .mlabel { flex: 1; text-align: center; background: rgba(255,255,255,0.92); border: 1px solid rgba(0,0,0,0.07); border-radius: 9px; padding: 6px 0; }
+  .monthnav .mlabel span { font-size: 12px; font-weight: 600; color: rgba(0,0,0,0.6); }
+  .monthnav .mlabel small { font-size: 11px; font-weight: 400; color: rgba(0,0,0,0.3); margin-left: 6px; }
+
+  .card { width: 100%; background: rgba(255,255,255,0.92); border: 1px solid rgba(0,0,0,0.07); border-radius: 14px; margin-bottom: 10px; overflow: hidden; }
+  .cardpad { display: flex; gap: 12px; padding: 12px 16px; }
+  .bar { width: 4px; border-radius: 2px; flex-shrink: 0; align-self: stretch; }
+  .body { flex: 1; min-width: 0; }
+
+  .seclbl { font-size: 11px; font-weight: 700; letter-spacing: .07em; color: rgba(0,0,0,0.33); text-transform: uppercase; margin: 4px 0 6px; }
+  .total { font-size: 26px; font-weight: 700; color: rgba(0,0,0,0.65); letter-spacing: .01em; }
+  .count { font-size: 11px; color: rgba(0,0,0,0.33); margin-top: 3px; }
+  .breakdown { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(0,0,0,0.06); }
+  .bdrow { display: flex; justify-content: space-between; align-items: baseline; padding: 4px 0; gap: 10px; }
+  .bdname { font-size: 12px; color: rgba(0,0,0,0.45); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bdamt { font-size: 12px; font-weight: 600; color: rgba(0,0,0,0.55); flex-shrink: 0; }
+
+  .searchcard .cardpad { padding: 8px 14px; align-items: center; }
+  .searchinp { flex: 1; min-width: 0; border: none; background: transparent; font-size: 13px; color: rgba(0,0,0,0.62); outline: none; padding: 4px 0; }
+  .searchinp::placeholder { color: rgba(0,0,0,0.28); }
+  .clr { background: rgba(0,0,0,0.06); border: none; border-radius: 50%; width: 22px; height: 22px; font-size: 11px; color: rgba(0,0,0,0.4); cursor: pointer; flex-shrink: 0; display: none; line-height: 1; }
+
+  .toprow { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .pill { font-size: 13px; font-weight: 600; color: rgba(0,0,0,0.55); border: none; border-radius: 20px; padding: 5px 12px; cursor: pointer; white-space: nowrap; }
+  .amt-pill { font-size: 15px; font-weight: 700; color: rgba(0,0,0,0.62); }
+  .amt-inp { font-size: 15px; font-weight: 700; color: rgba(0,0,0,0.62); border: none; border-radius: 20px; padding: 5px 12px; width: 116px; text-align: right; outline: none; }
+  .date-inp { border: none; border-radius: 20px; padding: 5px 10px; font-size: 13px; font-weight: 600; color: rgba(0,0,0,0.55); outline: none; }
+  .del { background: none; border: none; cursor: pointer; padding: 2px 5px; font-size: 12px; color: rgba(0,0,0,0.22); flex-shrink: 0; }
+  .grow { flex: 1; }
+
+  .pinp { border: none; border-bottom: 1px solid rgba(0,0,0,0.1); background: transparent; font-size: 13px; color: rgba(0,0,0,0.65); outline: none; padding: 5px 0; width: 100%; display: block; margin-top: 2px; }
+  .pinp::placeholder { color: rgba(0,0,0,0.28); }
+  .memo { border: none; background: transparent; font-size: 12px; color: rgba(0,0,0,0.55); outline: none; resize: none; line-height: 1.6; width: 100%; padding: 4px 0 0; display: block; }
+  .memo::placeholder { color: rgba(0,0,0,0.25); }
+
+  .addbtn { width: 100%; background: rgba(255,255,255,0.92); border: 1px solid rgba(0,0,0,0.07); border-radius: 14px; padding: 11px 0; font-size: 12px; font-weight: 600; color: rgba(0,0,0,0.4); cursor: pointer; margin-bottom: 10px; }
+  .empty { text-align: center; color: rgba(0,0,0,0.28); font-size: 12px; padding: 28px 0; }
+
+  /* 表示カード（読み取り） */
+  .rdate { font-size: 13px; font-weight: 600; color: rgba(0,0,0,0.5); white-space: nowrap; }
+  .ramt { font-size: 15px; font-weight: 700; color: rgba(0,0,0,0.62); white-space: nowrap; }
+  .editbtn { background: rgba(0,0,0,0.06); border: none; border-radius: 8px; padding: 3px 9px; font-size: 11px; font-weight: 600; color: rgba(0,0,0,0.45); cursor: pointer; flex-shrink: 0; }
+  .rparty { font-size: 13px; color: rgba(0,0,0,0.6); margin-top: 5px; word-break: break-word; }
+  .rmemo { font-size: 12px; color: rgba(0,0,0,0.45); line-height: 1.5; margin-top: 4px; word-break: break-word; white-space: pre-wrap; }
+
+  /* 編集・追加フォーム */
+  .formpad { padding: 14px 16px; }
+  .frow { display: flex; gap: 12px; margin-bottom: 12px; }
+  .ffield { flex: 1; min-width: 0; }
+  .ffield.amt { flex: 0 0 46%; }
+  .flabel { font-size: 10px; color: rgba(0,0,0,0.38); font-weight: 600; margin-bottom: 4px; }
+  .finp { border: none; border-bottom: 1px solid rgba(0,0,0,0.1); background: transparent; font-size: 14px; color: rgba(0,0,0,0.65); outline: none; padding: 6px 0; width: 100%; display: block; }
+  .finp::placeholder { color: rgba(0,0,0,0.28); }
+  .finp.amt { text-align: right; font-weight: 700; }
+  .ftext { border: none; background: transparent; font-size: 13px; color: rgba(0,0,0,0.6); outline: none; resize: none; line-height: 1.6; width: 100%; display: block; border-bottom: 1px solid rgba(0,0,0,0.1); padding: 4px 0 6px; margin-bottom: 12px; }
+  .ftext::placeholder { color: rgba(0,0,0,0.28); }
+  .fbtns { display: flex; gap: 8px; }
+  .fbtn { border: none; border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 600; }
+  .fbtn.del { background: rgba(0,0,0,0.05); color: rgba(0,0,0,0.35); padding: 8px 12px; }
+  .fbtn.cancel { background: rgba(0,0,0,0.06); color: rgba(0,0,0,0.45); flex: 1; padding: 8px 0; }
+  .fbtn.save { flex: 2; padding: 8px 0; font-weight: 700; color: rgba(0,0,0,0.6); }
+
+  /* 統計 */
+  .statbars { display: flex; align-items: flex-end; gap: 2px; height: 50px; }
+  .statcol { flex: 1; display: flex; align-items: flex-end; justify-content: center; cursor: pointer; }
+  .statbar { width: 62%; border-radius: 99px 99px 0 0; min-height: 1px; }
+  .statlabels { display: flex; margin-top: 2px; border-top: 1px solid rgba(0,0,0,0.06); padding-top: 3px; }
+  .statlabel { flex: 1; text-align: center; font-size: 8px; color: rgba(0,0,0,0.25); }
+  .statread { font-size: 11px; color: rgba(0,0,0,0.4); min-height: 15px; margin-top: 8px; }
+  .yeartotal { font-size: 22px; font-weight: 700; color: rgba(0,0,0,0.65); }
+  .yeartotal small { font-size: 11px; font-weight: 400; color: rgba(0,0,0,0.35); margin-left: 6px; }
+
+  /* 設定 */
+  .btnrow { display: flex; gap: 8px; padding: 12px 16px; }
+  .sbtn { flex: 1; background: rgba(0,0,0,0.06); border: none; border-radius: 8px; padding: 9px 0; font-size: 12px; font-weight: 600; color: rgba(0,0,0,0.45); cursor: pointer; text-align: center; display: block; }
+  .note { font-size: 10px; color: rgba(0,0,0,0.28); padding: 0 16px 12px; line-height: 1.5; }
+  .confirmtext { font-size: 12px; color: rgba(0,0,0,0.55); margin-bottom: 12px; line-height: 1.5; }
+  .danger { background: rgba(220,80,80,0.12); color: rgba(180,50,50,0.85); font-weight: 700; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+(function () {
+  "use strict";
+
+  /* ---------- IndexedDB ---------- */
+  var DB_NAME = "kakeibo-db", STORE = "entries";
+  function openDB() {
+    return new Promise(function (resolve, reject) {
+      var req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = function (e) {
+        var db = e.target.result;
+        if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: "id" });
+      };
+      req.onsuccess = function () { resolve(req.result); };
+      req.onerror = function () { reject(req.error); };
+    });
+  }
+  function dbAll() { return openDB().then(function (db) { return new Promise(function (res, rej) {
+    var r = db.transaction(STORE, "readonly").objectStore(STORE).getAll();
+    r.onsuccess = function () { res(r.result || []); }; r.onerror = function () { rej(r.error); };
+  }); }); }
+  function dbPut(e) { return openDB().then(function (db) { return new Promise(function (res, rej) {
+    var r = db.transaction(STORE, "readwrite").objectStore(STORE).put(e);
+    r.onsuccess = function () { res(); }; r.onerror = function () { rej(r.error); };
+  }); }); }
+  function dbDel(id) { return openDB().then(function (db) { return new Promise(function (res, rej) {
+    var r = db.transaction(STORE, "readwrite").objectStore(STORE).delete(id);
+    r.onsuccess = function () { res(); }; r.onerror = function () { rej(r.error); };
+  }); }); }
+  function dbClear() { return openDB().then(function (db) { return new Promise(function (res, rej) {
+    var r = db.transaction(STORE, "readwrite").objectStore(STORE).clear();
+    r.onsuccess = function () { res(); }; r.onerror = function () { rej(r.error); };
+  }); }); }
+
+  /* ---------- 定数 ---------- */
+  var TABS = [
+    { key: "in",      label: "入金", color: "#b8dda0", dim: "rgba(184,221,160,0.4)", hasParty: true,  partyLabel: "入金先", sumLabel: "今月の入金額" },
+    { key: "out",     label: "出金", color: "#fbd5ac", dim: "rgba(251,213,172,0.4)", hasParty: true,  partyLabel: "出金先", sumLabel: "今月の出金額" },
+    { key: "income",  label: "収入", color: "#c2d8f0", dim: "rgba(194,216,240,0.4)", hasParty: false, partyLabel: "",       sumLabel: "今月の収入総額" },
+    { key: "expense", label: "支出", color: "#f2c0d8", dim: "rgba(242,192,216,0.4)", hasParty: false, partyLabel: "",       sumLabel: "今月の支出総額" }
+  ];
+  function tabOf(k) { for (var i = 0; i < TABS.length; i++) if (TABS[i].key === k) return TABS[i]; }
+  var WD = ["日","月","火","水","木","金","土"];
+  var MAIN_KEYS = ["in", "out", "income", "expense"];
+
+  /* ---------- helpers ---------- */
+  function ymOf(d) { return d.getFullYear() + "-" + pad2(d.getMonth() + 1); }
+  function pad2(n) { return String(n).padStart(2, "0"); }
+  function todayStr() { var d = new Date(); return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()); }
+  function firstOfMonth(cur) { return cur.getFullYear() + "-" + pad2(cur.getMonth() + 1) + "-01"; }
+  function yen(n) { return "¥" + Number(n || 0).toLocaleString("ja-JP"); }
+  function fmtDate(iso) { if (!iso) return ""; var p = iso.split("-"); var dt = new Date(+p[0], +p[1]-1, +p[2]); return (+p[1]) + "月" + (+p[2]) + "日(" + WD[dt.getDay()] + ")"; }
+  function parseAmount(s) { var n = Math.round(Number(String(s).replace(/[^0-9.-]/g, ""))); return isNaN(n) ? 0 : n; }
+  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]; }); }
+  function el(html) { var t = document.createElement("template"); t.innerHTML = html.trim(); return t.content.firstChild; }
+  function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+
+  /* ---------- state ---------- */
+  var now = new Date();
+  var state = {
+    entries: [],
+    active: "in",
+    lastMain: "in",
+    cursor: new Date(now.getFullYear(), now.getMonth(), 1),
+    statsYear: now.getFullYear(),
+    searchOpen: false,
+    editingId: null,
+    adding: false,
+    searches: { in: "", out: "", income: "", expense: "" }
+  };
+
+  function monthEntries() {
+    var ym = ymOf(state.cursor), a = state.active;
+    return state.entries.filter(function (e) { return e.type === a && e.date && e.date.slice(0, 7) === ym; })
+      .sort(function (x, y) { return x.date === y.date ? y.createdAt - x.createdAt : (x.date < y.date ? 1 : -1); });
+  }
+  function filteredEntries() {
+    var list = monthEntries(), q = state.searches[state.active].trim().toLowerCase();
+    if (!q) return list;
+    return list.filter(function (e) {
+      return (e.party || "").toLowerCase().indexOf(q) >= 0 ||
+             (e.memo || "").toLowerCase().indexOf(q) >= 0 ||
+             String(e.amount).indexOf(q) >= 0;
+    });
+  }
+  function replaceEntry(updated) {
+    var i = state.entries.findIndex(function (e) { return e.id === updated.id; });
+    if (i >= 0) state.entries[i] = updated; else state.entries.push(updated);
+  }
+
+  /* ---------- DOM refs ---------- */
+  var root = document.getElementById("root");
+  var monthLabel, tabBtns = {}, secBtns = {}, summaryEl, searchCard, searchInput, clearBtn;
+  var listEl, addArea, scrollTabEl, navEl, statsEl, settingsEl, mainNodes = [];
+
+  function buildShell() {
+    var col = el('<div class="col"></div>');
+
+    var header = el('<div class="header"></div>');
+    var hbody = el('<div style="flex:1;min-width:0"></div>');
+    hbody.appendChild(el('<h1 class="title">家計簿</h1>'));
+    var sub = el('<p class="subdate"></p>');
+    sub.textContent = new Date().toLocaleDateString("ja-JP", { year: "numeric", month: "long", day: "numeric", weekday: "long" });
+    hbody.appendChild(sub);
+    header.appendChild(hbody);
+    var sectabs = el('<div class="sectabs"></div>');
+    [["home","ホーム"],["search","検索"],["stats","統計"],["settings","設定"]].forEach(function (p) {
+      var b = el('<button class="sectab">' + p[1] + '</button>');
+      b.onclick = function () { onSecTab(p[0]); };
+      secBtns[p[0]] = b; sectabs.appendChild(b);
+    });
+    header.appendChild(sectabs);
+    col.appendChild(header);
+
+    scrollTabEl = el('<div class="scrolltab"></div>');
+    TABS.forEach(function (t) {
+      var b = el('<button class="tab">' + t.label + '</button>');
+      b.onclick = function () { setActive(t.key); };
+      tabBtns[t.key] = b; scrollTabEl.appendChild(b);
+    });
+    col.appendChild(scrollTabEl); mainNodes.push(scrollTabEl);
+
+    navEl = el('<div class="monthnav"></div>');
+    var prev = el('<button class="nb" aria-label="前の月">\u2039</button>');
+    var next = el('<button class="nb" aria-label="次の月">\u203A</button>');
+    monthLabel = el('<div class="mlabel"></div>');
+    prev.onclick = function () { closeForms(); state.cursor = new Date(state.cursor.getFullYear(), state.cursor.getMonth() - 1, 1); renderMonth(); renderSummary(); renderAddArea(); renderList(); };
+    next.onclick = function () { closeForms(); state.cursor = new Date(state.cursor.getFullYear(), state.cursor.getMonth() + 1, 1); renderMonth(); renderSummary(); renderAddArea(); renderList(); };
+    navEl.appendChild(prev); navEl.appendChild(monthLabel); navEl.appendChild(next);
+    col.appendChild(navEl); mainNodes.push(navEl);
+
+    // 検索（月額の上）
+    searchCard = el('<div class="card searchcard"></div>');
+    var scpad = el('<div class="cardpad"></div>');
+    searchInput = el('<input class="searchinp" type="search" enterkeyhint="search" />');
+    clearBtn = el('<button class="clr">\u2715</button>');
+    searchInput.addEventListener("input", function () {
+      state.searches[state.active] = searchInput.value;
+      clearBtn.style.display = searchInput.value ? "flex" : "none";
+      renderList();
+    });
+    clearBtn.onclick = function () { searchInput.value = ""; state.searches[state.active] = ""; clearBtn.style.display = "none"; renderList(); searchInput.focus(); };
+    scpad.appendChild(searchInput); scpad.appendChild(clearBtn);
+    searchCard.appendChild(scpad);
+    col.appendChild(searchCard); mainNodes.push(searchCard);
+
+    addArea = el('<div></div>');
+    col.appendChild(addArea); mainNodes.push(addArea);
+
+    summaryEl = el('<div class="card"></div>');
+    col.appendChild(summaryEl); mainNodes.push(summaryEl);
+
+    listEl = el('<div></div>');
+    col.appendChild(listEl); mainNodes.push(listEl);
+
+    statsEl = el('<div style="display:none"></div>');
+    col.appendChild(statsEl);
+    settingsEl = el('<div style="display:none"></div>');
+    col.appendChild(settingsEl);
+
+    root.appendChild(col);
+  }
+
+  function setActive(key) {
+    closeForms();
+    state.active = key;
+    if (MAIN_KEYS.indexOf(key) >= 0) state.lastMain = key;
+    applyView();
+  }
+  function closeForms() { state.editingId = null; state.adding = false; }
+
+  function onSecTab(key) {
+    if (key === "home") { setActive(state.lastMain); }
+    else if (key === "stats" || key === "settings") { setActive(key); }
+    else if (key === "search") { toggleSearch(); }
+  }
+
+  function toggleSearch() {
+    if (MAIN_KEYS.indexOf(state.active) < 0) state.active = state.lastMain;
+    // 検索語が空のときだけ閉じられる（フィルタ中は開いたまま）
+    if (state.searchOpen && !state.searches[state.active].trim()) state.searchOpen = false;
+    else state.searchOpen = true;
+    applyView();
+    if (state.searchOpen) searchInput.focus();
+  }
+
+  function applyView() {
+    var isSec = state.active === "stats" || state.active === "settings";
+    mainNodes.forEach(function (n) { n.style.display = isSec ? "none" : ""; });
+    statsEl.style.display = state.active === "stats" ? "" : "none";
+    settingsEl.style.display = state.active === "settings" ? "" : "none";
+
+    secBtns.home.classList.toggle("active", !isSec);
+    secBtns.stats.classList.toggle("active", state.active === "stats");
+    secBtns.settings.classList.toggle("active", state.active === "settings");
+
+    if (!isSec) {
+      var tab = tabOf(state.active);
+      TABS.forEach(function (t) { tabBtns[t.key].classList.toggle("active", t.key === state.active); });
+      searchInput.placeholder = tab.label + "を検索";
+      searchInput.value = state.searches[state.active];
+      clearBtn.style.display = state.searches[state.active] ? "flex" : "none";
+      var showSearch = state.searchOpen || !!state.searches[state.active].trim();
+      searchCard.style.display = showSearch ? "" : "none";
+      secBtns.search.classList.toggle("active", showSearch);
+      renderMonth(); renderSummary(); renderAddArea(); renderList();
+    } else {
+      secBtns.search.classList.toggle("active", false);
+      if (state.active === "stats") renderStats(); else renderSettings();
+    }
+  }
+
+  function renderMonth() {
+    var isThis = ymOf(state.cursor) === ymOf(new Date());
+    monthLabel.innerHTML = '<span>' + state.cursor.getFullYear() + "年" + (state.cursor.getMonth() + 1) + "月</span>" + (isThis ? '<small>今月</small>' : "");
+  }
+
+  /* ---------- 追加・保存・削除 ---------- */
+  function openAdd() { state.editingId = null; state.adding = true; renderAddArea(); renderList(); var inp = addArea.querySelector(".finp.amt"); if (inp) inp.focus(); }
+  function openEdit(id) { state.adding = false; state.editingId = id; renderAddArea(); renderList(); }
+
+  function saveNew(vals) {
+    var tab = tabOf(state.active);
+    var entry = { id: uid(), type: tab.key, party: vals.party, amount: vals.amount, memo: vals.memo, date: vals.date, createdAt: Date.now() };
+    state.entries.push(entry); dbPut(entry);
+    state.adding = false;
+    renderSummary(); renderAddArea(); renderList();
+  }
+  function saveEdit(id, vals) {
+    var e = state.entries.find(function (x) { return x.id === id; });
+    if (e) { e.party = vals.party; e.amount = vals.amount; e.memo = vals.memo; e.date = vals.date; replaceEntry(e); dbPut(e); }
+    state.editingId = null;
+    renderSummary(); renderList();
+  }
+  function remove(id) {
+    dbDel(id).then(function () {
+      state.entries = state.entries.filter(function (e) { return e.id !== id; });
+      state.editingId = null;
+      renderSummary(); renderList();
+    });
+  }
+
+  /* ---------- フォーム（追加・編集 共用） ---------- */
+  function buildForm(opts) {
+    // opts: { tab, entry|null, onSave, onCancel, onDelete|null, submitLabel }
+    var tab = opts.tab, e = opts.entry;
+    var defDate = e ? e.date : (ymOf(state.cursor) === ymOf(new Date()) ? todayStr() : firstOfMonth(state.cursor));
+    var card = el('<div class="card"></div>');
+    var pad = el('<div class="formpad"></div>');
+
+    var row = el('<div class="frow"></div>');
+    var dateField = el('<div class="ffield"><div class="flabel">日付</div></div>');
+    var dateInp = el('<input class="finp" type="date" />'); dateInp.value = defDate;
+    dateField.appendChild(dateInp);
+    var amtField = el('<div class="ffield amt"><div class="flabel">金額</div></div>');
+    var amtInp = el('<input class="finp amt" type="number" inputmode="numeric" placeholder="0" enterkeyhint="done" />');
+    if (e && e.amount) amtInp.value = e.amount;
+    amtField.appendChild(amtInp);
+    row.appendChild(dateField); row.appendChild(amtField);
+    pad.appendChild(row);
+
+    var partyInp = null;
+    if (tab.hasParty) {
+      var pf = el('<div class="ffield" style="margin-bottom:12px"><div class="flabel">' + tab.partyLabel + '</div></div>');
+      partyInp = el('<input class="finp" type="text" placeholder="' + tab.partyLabel + '" />');
+      if (e) partyInp.value = e.party || "";
+      pf.appendChild(partyInp); pad.appendChild(pf);
+    }
+
+    var memoInp = el('<textarea class="ftext" rows="2" placeholder="メモ（任意）"></textarea>');
+    if (e) memoInp.value = e.memo || "";
+    pad.appendChild(memoInp);
+
+    function collect() { return { date: dateInp.value || defDate, amount: parseAmount(amtInp.value), party: partyInp ? partyInp.value.trim() : "", memo: memoInp.value.trim() }; }
+
+    var btns = el('<div class="fbtns"></div>');
+    if (opts.onDelete) { var d = el('<button class="fbtn del">削除</button>'); d.onclick = opts.onDelete; btns.appendChild(d); }
+    var c = el('<button class="fbtn cancel">キャンセル</button>'); c.onclick = opts.onCancel; btns.appendChild(c);
+    var s = el('<button class="fbtn save">' + opts.submitLabel + '</button>'); s.style.background = tab.color;
+    s.onclick = function () { opts.onSave(collect()); }; btns.appendChild(s);
+    pad.appendChild(btns);
+
+    card.appendChild(pad);
+    return card;
+  }
+
+  /* ---------- 表示カード（読み取り） ---------- */
+  function displayCard(entry, tab) {
+    var card = el('<div class="card" data-id="' + entry.id + '"></div>');
+    var pad = el('<div class="cardpad"></div>');
+    var bar = el('<div class="bar"></div>'); bar.style.background = tab.color;
+    var body = el('<div class="body"></div>');
+
+    var top = el('<div class="toprow"></div>');
+    top.appendChild(el('<span class="rdate">' + fmtDate(entry.date) + '</span>'));
+    top.appendChild(el('<div class="grow"></div>'));
+    top.appendChild(el('<span class="ramt">' + yen(entry.amount) + '</span>'));
+    var edit = el('<button class="editbtn">編集</button>');
+    edit.onclick = function () { openEdit(entry.id); };
+    top.appendChild(edit);
+    body.appendChild(top);
+
+    if (tab.hasParty && entry.party) body.appendChild(el('<div class="rparty">' + esc(entry.party) + '</div>'));
+    if (entry.memo) body.appendChild(el('<div class="rmemo">' + esc(entry.memo) + '</div>'));
+
+    pad.appendChild(bar); pad.appendChild(body); card.appendChild(pad);
+    return card;
+  }
+
+  /* ---------- 追加エリア（ボタン or 追加フォーム） ---------- */
+  function renderAddArea() {
+    var tab = tabOf(state.active);
+    addArea.innerHTML = "";
+    if (state.adding) {
+      addArea.appendChild(buildForm({
+        tab: tab, entry: null, submitLabel: "記録",
+        onSave: saveNew,
+        onCancel: function () { state.adding = false; renderAddArea(); renderList(); }
+      }));
+    } else {
+      var b = el('<button class="addbtn">＋ ' + tab.label + 'を記録</button>');
+      b.onclick = openAdd;
+      addArea.appendChild(b);
+    }
+  }
+
+  /* ---------- サマリー・一覧 ---------- */
+  function renderSummary() {
+    var tab = tabOf(state.active), list = monthEntries();
+    var total = list.reduce(function (s, e) { return s + (e.amount || 0); }, 0);
+    summaryEl.innerHTML = "";
+    var pad = el('<div class="cardpad"></div>');
+    var bar = el('<div class="bar" style="min-height:42px"></div>'); bar.style.background = tab.color;
+    var body = el('<div class="body"></div>');
+    body.appendChild(el('<div class="seclbl">' + tab.sumLabel + '</div>'));
+    body.appendChild(el('<div class="total">' + yen(total) + '</div>'));
+    body.appendChild(el('<div class="count">' + list.length + '件</div>'));
+    if (tab.hasParty && list.length) {
+      var map = {};
+      list.forEach(function (e) { var k = e.party || "（未設定）"; map[k] = (map[k] || 0) + (e.amount || 0); });
+      var rows = Object.keys(map).map(function (k) { return [k, map[k]]; }).sort(function (a, b) { return b[1] - a[1]; });
+      var bd = el('<div class="breakdown"></div>');
+      rows.forEach(function (r) { bd.appendChild(el('<div class="bdrow"><span class="bdname">' + esc(r[0]) + '</span><span class="bdamt">' + yen(r[1]) + '</span></div>')); });
+      body.appendChild(bd);
+    }
+    pad.appendChild(bar); pad.appendChild(body); summaryEl.appendChild(pad);
+  }
+  function renderList() {
+    var tab = tabOf(state.active), list = filteredEntries();
+    listEl.innerHTML = "";
+    if (!list.length) {
+      listEl.appendChild(el('<div class="empty">' + (state.searches[state.active] ? "該当する記録はありません" : "記録がありません。記録ボタンから追加できます") + '</div>'));
+      return;
+    }
+    list.forEach(function (e) {
+      if (state.editingId === e.id) {
+        listEl.appendChild(buildForm({
+          tab: tab, entry: e, submitLabel: "保存",
+          onSave: function (vals) { saveEdit(e.id, vals); },
+          onCancel: function () { state.editingId = null; renderList(); },
+          onDelete: function () { remove(e.id); }
+        }));
+      } else {
+        listEl.appendChild(displayCard(e, tab));
+      }
+    });
+  }
+
+  /* ---------- 統計 ---------- */
+  function renderStats() {
+    statsEl.innerHTML = "";
+    var thisYear = new Date().getFullYear(), thisMonth = new Date().getMonth() + 1;
+
+    var nav = el('<div class="monthnav"></div>');
+    var prev = el('<button class="nb">\u2039</button>');
+    var next = el('<button class="nb">\u203A</button>');
+    var lbl = el('<div class="mlabel"><span>' + state.statsYear + '年</span></div>');
+    prev.onclick = function () { state.statsYear--; renderStats(); };
+    next.onclick = function () { if (state.statsYear < thisYear) { state.statsYear++; renderStats(); } };
+    if (state.statsYear >= thisYear) next.setAttribute("disabled", "");
+    nav.appendChild(prev); nav.appendChild(lbl); nav.appendChild(next);
+    statsEl.appendChild(nav);
+
+    TABS.forEach(function (tab) {
+      var totals = [];
+      for (var mo = 1; mo <= 12; mo++) {
+        var prefix = state.statsYear + "-" + pad2(mo);
+        var sum = 0;
+        state.entries.forEach(function (e) { if (e.type === tab.key && e.date && e.date.slice(0, 7) === prefix) sum += (e.amount || 0); });
+        totals.push(sum);
+      }
+      var yearTotal = totals.reduce(function (a, b) { return a + b; }, 0);
+      var max = Math.max.apply(null, totals.concat([1]));
+
+      var card = el('<div class="card"></div>');
+      var pad = el('<div class="cardpad"></div>');
+      var bar = el('<div class="bar" style="min-height:42px"></div>'); bar.style.background = tab.color;
+      var body = el('<div class="body"></div>');
+      body.appendChild(el('<div class="seclbl">' + tab.label + '</div>'));
+      body.appendChild(el('<div class="yeartotal">' + yen(yearTotal) + '<small>年間合計</small></div>'));
+
+      var read = el('<div class="statread"></div>');
+      read.textContent = yearTotal ? "棒をタップで月別の額" : "この年の記録はありません";
+
+      var bars = el('<div class="statbars"></div>');
+      totals.forEach(function (v, i) {
+        var mo = i + 1;
+        var future = (state.statsYear === thisYear && mo > thisMonth);
+        var col = el('<div class="statcol"></div>');
+        var b = el('<div class="statbar"></div>');
+        if (future) { b.style.background = "transparent"; b.style.height = "0"; }
+        else if (v > 0) { b.style.background = tab.color; b.style.height = Math.max(3, Math.round(v / max * 50)) + "px"; }
+        else { b.style.background = "rgba(0,0,0,0.06)"; b.style.height = "1px"; }
+        col.onclick = function () { read.textContent = future ? (mo + "月：—") : (mo + "月　" + yen(v)); };
+        col.appendChild(b); bars.appendChild(col);
+      });
+
+      var labels = el('<div class="statlabels"></div>');
+      for (var m2 = 1; m2 <= 12; m2++) labels.appendChild(el('<div class="statlabel">' + m2 + '</div>'));
+
+      body.appendChild(read);
+      body.appendChild(bars);
+      body.appendChild(labels);
+      pad.appendChild(bar); pad.appendChild(body); card.appendChild(pad);
+      statsEl.appendChild(card);
+    });
+  }
+
+  /* ---------- 設定 ---------- */
+  function exportData() {
+    var data = { app: "kakeibo", version: 1, exportedAt: new Date().toISOString(), entries: state.entries };
+    var blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url; a.download = "kakeibo-backup-" + todayStr() + ".json";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+  function importData(parsed, done) {
+    var arr = Array.isArray(parsed) ? parsed : (parsed && parsed.entries);
+    if (!Array.isArray(arr)) { alert("対応していないファイルです"); return; }
+    var clean = arr.filter(function (e) { return e && e.id && MAIN_KEYS.indexOf(e.type) >= 0; }).map(function (e) {
+      return { id: String(e.id), type: e.type, party: e.party || "", amount: parseAmount(e.amount), memo: e.memo || "", date: e.date || todayStr(), createdAt: e.createdAt || Date.now() };
+    });
+    dbClear().then(function () { return Promise.all(clean.map(dbPut)); }).then(function () {
+      state.entries = clean; done(clean.length);
+    });
+  }
+  function renderSettings(msg) {
+    settingsEl.innerHTML = "";
+
+    settingsEl.appendChild(el('<p class="seclbl">バックアップ</p>'));
+    var bcard = el('<div class="card"></div>');
+    var brow = el('<div class="btnrow"></div>');
+    var expBtn = el('<button class="sbtn">ファイルとして保存</button>');
+    expBtn.onclick = exportData;
+    var impLabel = el('<label class="sbtn" style="cursor:pointer">ファイルから復元</label>');
+    var impInput = el('<input type="file" accept=".json,application/json" style="display:none" />');
+    impInput.onchange = function (ev) {
+      var f = ev.target.files[0]; if (!f) return;
+      var r = new FileReader();
+      r.onload = function (e2) {
+        try { var parsed = JSON.parse(e2.target.result); importData(parsed, function (n) { renderSettings(n + "件を復元しました"); }); }
+        catch (err) { alert("読み込みに失敗しました"); }
+      };
+      r.readAsText(f); ev.target.value = "";
+    };
+    impLabel.appendChild(impInput);
+    brow.appendChild(expBtn); brow.appendChild(impLabel);
+    bcard.appendChild(brow);
+    bcard.appendChild(el('<p class="note">記録はこの端末のブラウザ（IndexedDB）に自動保存されます。機種変更や削除に備えて、ときどきファイルとして保存しておくと安心です。</p>'));
+    settingsEl.appendChild(bcard);
+
+    if (msg) settingsEl.appendChild(el('<p style="font-size:11px;color:rgba(80,140,90,0.9);margin:-2px 0 10px;padding-left:2px">' + esc(msg) + '</p>'));
+
+    settingsEl.appendChild(el('<p class="seclbl">データ管理</p>'));
+    var dcard = el('<div class="card"></div>');
+    var dpad = el('<div style="padding:14px 16px"></div>');
+    var confirming = false;
+    function paint() {
+      dpad.innerHTML = "";
+      if (!confirming) {
+        var b = el('<button class="sbtn" style="width:100%">すべてのデータを削除</button>');
+        b.onclick = function () { confirming = true; paint(); };
+        dpad.appendChild(b);
+      } else {
+        dpad.appendChild(el('<p class="confirmtext">すべての記録（入金・出金・収入・支出）を削除します。この操作は取り消せません。</p>'));
+        var row = el('<div style="display:flex;gap:8px"></div>');
+        var cancel = el('<button class="sbtn" style="flex:1">キャンセル</button>');
+        var del = el('<button class="sbtn danger" style="flex:1">削除する</button>');
+        cancel.onclick = function () { confirming = false; paint(); };
+        del.onclick = function () { dbClear().then(function () { state.entries = []; confirming = false; paint(); }); };
+        row.appendChild(cancel); row.appendChild(del); dpad.appendChild(row);
+      }
+    }
+    paint();
+    dcard.appendChild(dpad);
+    settingsEl.appendChild(dcard);
+  }
+  /* ---------- init ---------- */
+  buildShell();
+  applyView();
+  dbAll().then(function (all) { state.entries = all; applyView(); })
+    .catch(function (err) { listEl.innerHTML = '<div class="empty">保存領域を開けませんでした<br>' + esc(String(err)) + '</div>'; });
+})();
+</script>
+<script>if("serviceWorker" in navigator){window.addEventListener("load",function(){navigator.serviceWorker.register("./sw.js").catch(function(){});});}</script>
+</body>
+</html>
