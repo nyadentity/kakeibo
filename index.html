@@ -64,9 +64,13 @@
   .bdamt { font-size: 12px; font-weight: 600; color: rgba(0,0,0,0.55); flex-shrink: 0; }
 
   .searchcard .cardpad { padding: 8px 14px; align-items: center; }
-  .searchinp { flex: 1; min-width: 0; border: none; background: transparent; font-size: 13px; color: rgba(0,0,0,0.62); outline: none; padding: 4px 0; }
+  .searchinp { flex: 1; min-width: 0; border: none; background: transparent; font-size: 13px; color: rgba(0,0,0,0.62); outline: none; padding: 4px 0; -webkit-appearance: none; appearance: none; }
+  .searchinp::-webkit-search-cancel-button,
+  .searchinp::-webkit-search-decoration,
+  .searchinp::-webkit-search-results-button,
+  .searchinp::-webkit-search-results-decoration { -webkit-appearance: none; appearance: none; display: none; }
   .searchinp::placeholder { color: rgba(0,0,0,0.28); }
-  .clr { background: rgba(0,0,0,0.06); border: none; border-radius: 50%; width: 22px; height: 22px; font-size: 11px; color: rgba(0,0,0,0.4); cursor: pointer; flex-shrink: 0; display: none; line-height: 1; }
+  .clr { background: transparent; border: none; padding: 0; width: 24px; height: 24px; font-size: 15px; color: rgba(0,0,0,0.3); cursor: pointer; flex-shrink: 0; display: none; align-items: center; justify-content: center; line-height: 1; }
 
   .toprow { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
   .pill { font-size: 13px; font-weight: 600; color: rgba(0,0,0,0.55); border: none; border-radius: 20px; padding: 5px 12px; cursor: pointer; white-space: nowrap; }
@@ -90,6 +94,7 @@
   .editbtn { background: rgba(0,0,0,0.06); border: none; border-radius: 8px; padding: 3px 9px; font-size: 11px; font-weight: 600; color: rgba(0,0,0,0.45); cursor: pointer; flex-shrink: 0; }
   .rparty { font-size: 13px; color: rgba(0,0,0,0.6); margin-top: 5px; word-break: break-word; }
   .rmemo { font-size: 12px; color: rgba(0,0,0,0.45); line-height: 1.5; margin-top: 4px; word-break: break-word; white-space: pre-wrap; }
+  .rtag { font-size: 11px; font-weight: 600; color: rgba(0,0,0,0.5); border-radius: 8px; padding: 2px 9px; flex-shrink: 0; }
 
   /* 編集・追加フォーム */
   .formpad { padding: 14px 16px; }
@@ -180,6 +185,7 @@
   function firstOfMonth(cur) { return cur.getFullYear() + "-" + pad2(cur.getMonth() + 1) + "-01"; }
   function yen(n) { return "¥" + Number(n || 0).toLocaleString("ja-JP"); }
   function fmtDate(iso) { if (!iso) return ""; var p = iso.split("-"); var dt = new Date(+p[0], +p[1]-1, +p[2]); return (+p[1]) + "月" + (+p[2]) + "日(" + WD[dt.getDay()] + ")"; }
+  function fmtDateFull(iso) { if (!iso) return ""; var p = iso.split("-"); var dt = new Date(+p[0], +p[1]-1, +p[2]); return (+p[0]) + "/" + (+p[1]) + "/" + (+p[2]) + "(" + WD[dt.getDay()] + ")"; }
   function parseAmount(s) { var n = Math.round(Number(String(s).replace(/[^0-9.-]/g, ""))); return isNaN(n) ? 0 : n; }
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]; }); }
   function el(html) { var t = document.createElement("template"); t.innerHTML = html.trim(); return t.content.firstChild; }
@@ -193,25 +199,15 @@
     lastMain: "in",
     cursor: new Date(now.getFullYear(), now.getMonth(), 1),
     statsYear: now.getFullYear(),
-    searchOpen: false,
     editingId: null,
     adding: false,
-    searches: { in: "", out: "", income: "", expense: "" }
+    searchQuery: ""
   };
 
   function monthEntries() {
     var ym = ymOf(state.cursor), a = state.active;
     return state.entries.filter(function (e) { return e.type === a && e.date && e.date.slice(0, 7) === ym; })
       .sort(function (x, y) { return x.date === y.date ? y.createdAt - x.createdAt : (x.date < y.date ? 1 : -1); });
-  }
-  function filteredEntries() {
-    var list = monthEntries(), q = state.searches[state.active].trim().toLowerCase();
-    if (!q) return list;
-    return list.filter(function (e) {
-      return (e.party || "").toLowerCase().indexOf(q) >= 0 ||
-             (e.memo || "").toLowerCase().indexOf(q) >= 0 ||
-             String(e.amount).indexOf(q) >= 0;
-    });
   }
   function replaceEntry(updated) {
     var i = state.entries.findIndex(function (e) { return e.id === updated.id; });
@@ -220,7 +216,7 @@
 
   /* ---------- DOM refs ---------- */
   var root = document.getElementById("root");
-  var monthLabel, tabBtns = {}, secBtns = {}, summaryEl, searchCard, searchInput, clearBtn;
+  var monthLabel, tabBtns = {}, secBtns = {}, summaryEl, searchInput, clearBtn, searchEl, searchResults;
   var listEl, addArea, scrollTabEl, navEl, statsEl, settingsEl, mainNodes = [];
 
   function buildShell() {
@@ -259,21 +255,6 @@
     navEl.appendChild(prev); navEl.appendChild(monthLabel); navEl.appendChild(next);
     col.appendChild(navEl); mainNodes.push(navEl);
 
-    // 検索（月額の上）
-    searchCard = el('<div class="card searchcard"></div>');
-    var scpad = el('<div class="cardpad"></div>');
-    searchInput = el('<input class="searchinp" type="search" enterkeyhint="search" />');
-    clearBtn = el('<button class="clr">\u2715</button>');
-    searchInput.addEventListener("input", function () {
-      state.searches[state.active] = searchInput.value;
-      clearBtn.style.display = searchInput.value ? "flex" : "none";
-      renderList();
-    });
-    clearBtn.onclick = function () { searchInput.value = ""; state.searches[state.active] = ""; clearBtn.style.display = "none"; renderList(); searchInput.focus(); };
-    scpad.appendChild(searchInput); scpad.appendChild(clearBtn);
-    searchCard.appendChild(scpad);
-    col.appendChild(searchCard); mainNodes.push(searchCard);
-
     addArea = el('<div></div>');
     col.appendChild(addArea); mainNodes.push(addArea);
 
@@ -288,6 +269,24 @@
     settingsEl = el('<div style="display:none"></div>');
     col.appendChild(settingsEl);
 
+    // 検索ページ（全データ横断）
+    searchEl = el('<div style="display:none"></div>');
+    var scard = el('<div class="card searchcard"></div>');
+    var scpad = el('<div class="cardpad"></div>');
+    searchInput = el('<input class="searchinp" type="text" placeholder="すべての記録を検索" enterkeyhint="search" autocomplete="off" />');
+    clearBtn = el('<button class="clr">\u2715</button>');
+    searchInput.addEventListener("input", function () {
+      state.searchQuery = searchInput.value;
+      clearBtn.style.display = searchInput.value ? "flex" : "none";
+      renderSearchResults();
+    });
+    clearBtn.onclick = function () { searchInput.value = ""; state.searchQuery = ""; clearBtn.style.display = "none"; renderSearchResults(); searchInput.focus(); };
+    scpad.appendChild(searchInput); scpad.appendChild(clearBtn);
+    scard.appendChild(scpad);
+    searchResults = el('<div></div>');
+    searchEl.appendChild(scard); searchEl.appendChild(searchResults);
+    col.appendChild(searchEl);
+
     root.appendChild(col);
   }
 
@@ -300,43 +299,32 @@
   function closeForms() { state.editingId = null; state.adding = false; }
 
   function onSecTab(key) {
-    if (key === "home") { setActive(state.lastMain); }
-    else if (key === "stats" || key === "settings") { setActive(key); }
-    else if (key === "search") { toggleSearch(); }
-  }
-
-  function toggleSearch() {
-    if (MAIN_KEYS.indexOf(state.active) < 0) state.active = state.lastMain;
-    // 検索語が空のときだけ閉じられる（フィルタ中は開いたまま）
-    if (state.searchOpen && !state.searches[state.active].trim()) state.searchOpen = false;
-    else state.searchOpen = true;
-    applyView();
-    if (state.searchOpen) searchInput.focus();
+    setActive(key === "home" ? state.lastMain : key);
   }
 
   function applyView() {
-    var isSec = state.active === "stats" || state.active === "settings";
+    var isSearch = state.active === "search";
+    var isSec = state.active === "stats" || state.active === "settings" || isSearch;
     mainNodes.forEach(function (n) { n.style.display = isSec ? "none" : ""; });
     statsEl.style.display = state.active === "stats" ? "" : "none";
     settingsEl.style.display = state.active === "settings" ? "" : "none";
+    searchEl.style.display = isSearch ? "" : "none";
 
-    secBtns.home.classList.toggle("active", !isSec);
+    secBtns.home.classList.toggle("active", MAIN_KEYS.indexOf(state.active) >= 0);
+    secBtns.search.classList.toggle("active", isSearch);
     secBtns.stats.classList.toggle("active", state.active === "stats");
     secBtns.settings.classList.toggle("active", state.active === "settings");
 
-    if (!isSec) {
-      var tab = tabOf(state.active);
+    if (MAIN_KEYS.indexOf(state.active) >= 0) {
       TABS.forEach(function (t) { tabBtns[t.key].classList.toggle("active", t.key === state.active); });
-      searchInput.placeholder = tab.label + "を検索";
-      searchInput.value = state.searches[state.active];
-      clearBtn.style.display = state.searches[state.active] ? "flex" : "none";
-      var showSearch = state.searchOpen || !!state.searches[state.active].trim();
-      searchCard.style.display = showSearch ? "" : "none";
-      secBtns.search.classList.toggle("active", showSearch);
       renderMonth(); renderSummary(); renderAddArea(); renderList();
-    } else {
-      secBtns.search.classList.toggle("active", false);
-      if (state.active === "stats") renderStats(); else renderSettings();
+    } else if (state.active === "stats") {
+      renderStats();
+    } else if (state.active === "settings") {
+      renderSettings();
+    } else if (isSearch) {
+      renderSearchResults();
+      searchInput.focus();
     }
   }
 
@@ -476,10 +464,10 @@
     pad.appendChild(bar); pad.appendChild(body); summaryEl.appendChild(pad);
   }
   function renderList() {
-    var tab = tabOf(state.active), list = filteredEntries();
+    var tab = tabOf(state.active), list = monthEntries();
     listEl.innerHTML = "";
     if (!list.length) {
-      listEl.appendChild(el('<div class="empty">' + (state.searches[state.active] ? "該当する記録はありません" : "記録がありません。記録ボタンから追加できます") + '</div>'));
+      listEl.appendChild(el('<div class="empty">記録がありません。記録ボタンから追加できます</div>'));
       return;
     }
     list.forEach(function (e) {
@@ -494,6 +482,54 @@
         listEl.appendChild(displayCard(e, tab));
       }
     });
+  }
+
+  /* ---------- 検索（全データ横断） ---------- */
+  function renderSearchResults() {
+    var q = state.searchQuery.trim().toLowerCase();
+    searchResults.innerHTML = "";
+    if (!q) {
+      searchResults.appendChild(el('<div class="empty">キーワードを入力すると、すべての月・項目から検索します</div>'));
+      return;
+    }
+    var hits = state.entries.filter(function (e) {
+      return (e.party || "").toLowerCase().indexOf(q) >= 0 ||
+             (e.memo || "").toLowerCase().indexOf(q) >= 0 ||
+             String(e.amount).indexOf(q) >= 0;
+    }).sort(function (a, b) { return a.date === b.date ? b.createdAt - a.createdAt : (a.date < b.date ? 1 : -1); });
+    if (!hits.length) {
+      searchResults.appendChild(el('<div class="empty">該当する記録はありません</div>'));
+      return;
+    }
+    searchResults.appendChild(el('<div class="seclbl" style="margin:2px 2px 8px">' + hits.length + '件</div>'));
+    hits.forEach(function (e) { searchResults.appendChild(searchResultCard(e)); });
+  }
+  function searchResultCard(e) {
+    var tab = tabOf(e.type);
+    var card = el('<div class="card" style="cursor:pointer"></div>');
+    var pad = el('<div class="cardpad"></div>');
+    var bar = el('<div class="bar"></div>'); bar.style.background = tab.color;
+    var body = el('<div class="body"></div>');
+    var top = el('<div class="toprow"></div>');
+    var tag = el('<span class="rtag">' + tab.label + '</span>'); tag.style.background = tab.dim;
+    top.appendChild(tag);
+    top.appendChild(el('<span class="rdate" style="margin-left:8px">' + fmtDateFull(e.date) + '</span>'));
+    top.appendChild(el('<div class="grow"></div>'));
+    top.appendChild(el('<span class="ramt">' + yen(e.amount) + '</span>'));
+    body.appendChild(top);
+    if (tab.hasParty && e.party) body.appendChild(el('<div class="rparty">' + esc(e.party) + '</div>'));
+    if (e.memo) body.appendChild(el('<div class="rmemo">' + esc(e.memo) + '</div>'));
+    pad.appendChild(bar); pad.appendChild(body); card.appendChild(pad);
+    card.onclick = function () { jumpTo(e); };
+    return card;
+  }
+  function jumpTo(e) {
+    closeForms();
+    var p = e.date.split("-");
+    state.cursor = new Date(+p[0], +p[1] - 1, 1);
+    state.active = e.type; state.lastMain = e.type;
+    applyView();
+    window.scrollTo(0, 0);
   }
 
   /* ---------- 統計 ---------- */
@@ -558,13 +594,18 @@
 
   /* ---------- 設定 ---------- */
   function exportData() {
-    var data = { app: "kakeibo", version: 1, exportedAt: new Date().toISOString(), entries: state.entries };
-    var blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    var url = URL.createObjectURL(blob);
+    var json = JSON.stringify({ app: "kakeibo", version: 1, exportedAt: new Date().toISOString(), entries: state.entries }, null, 2);
+    var fn = "kakeibo-backup-" + todayStr() + ".json";
+    try {
+      if (navigator.canShare) {
+        var f = new File([json], fn, { type: "application/json" });
+        if (navigator.canShare({ files: [f] })) { navigator.share({ files: [f] }).catch(function () {}); return; }
+      }
+    } catch (e) {}
     var a = document.createElement("a");
-    a.href = url; a.download = "kakeibo-backup-" + todayStr() + ".json";
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    a.href = "data:application/json;charset=utf-8," + encodeURIComponent(json);
+    a.download = fn;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
   }
   function importData(parsed, done) {
     var arr = Array.isArray(parsed) ? parsed : (parsed && parsed.entries);
