@@ -128,6 +128,8 @@
   .sbtn { flex: 1; background: rgba(0,0,0,0.06); border: none; border-radius: 8px; padding: 9px 0; font-size: 12px; font-weight: 600; color: rgba(0,0,0,0.45); cursor: pointer; text-align: center; display: block; }
   .note { font-size: 10px; color: rgba(0,0,0,0.28); padding: 0 16px 12px; line-height: 1.5; }
   .confirmtext { font-size: 12px; color: rgba(0,0,0,0.55); margin-bottom: 12px; line-height: 1.5; }
+  .daysel { border: none; background: rgba(0,0,0,0.06); border-radius: 8px; padding: 7px 4px; font-size: 15px; font-weight: 700; color: rgba(0,0,0,0.6); outline: none; -webkit-appearance: none; appearance: none; min-width: 56px; text-align: center; text-align-last: center; }
+  .daysel option { text-align: center; }
   .danger { background: rgba(220,80,80,0.12); color: rgba(180,50,50,0.85); font-weight: 700; }
 </style>
 </head>
@@ -138,13 +140,14 @@
   "use strict";
 
   /* ---------- IndexedDB ---------- */
-  var DB_NAME = "kakeibo-db", STORE = "entries";
+  var DB_NAME = "kakeibo-db", STORE = "entries", META = "meta";
   function openDB() {
     return new Promise(function (resolve, reject) {
-      var req = indexedDB.open(DB_NAME, 1);
+      var req = indexedDB.open(DB_NAME, 2);
       req.onupgradeneeded = function (e) {
         var db = e.target.result;
         if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: "id" });
+        if (!db.objectStoreNames.contains(META)) db.createObjectStore(META, { keyPath: "key" });
       };
       req.onsuccess = function () { resolve(req.result); };
       req.onerror = function () { reject(req.error); };
@@ -164,6 +167,14 @@
   }); }); }
   function dbClear() { return openDB().then(function (db) { return new Promise(function (res, rej) {
     var r = db.transaction(STORE, "readwrite").objectStore(STORE).clear();
+    r.onsuccess = function () { res(); }; r.onerror = function () { rej(r.error); };
+  }); }); }
+  function dbGetMeta(key) { return openDB().then(function (db) { return new Promise(function (res, rej) {
+    var r = db.transaction(META, "readonly").objectStore(META).get(key);
+    r.onsuccess = function () { res(r.result ? r.result.value : undefined); }; r.onerror = function () { rej(r.error); };
+  }); }); }
+  function dbSetMeta(key, value) { return openDB().then(function (db) { return new Promise(function (res, rej) {
+    var r = db.transaction(META, "readwrite").objectStore(META).put({ key: key, value: value });
     r.onsuccess = function () { res(); }; r.onerror = function () { rej(r.error); };
   }); }); }
 
@@ -201,13 +212,27 @@
     statsYear: now.getFullYear(),
     editingId: null,
     adding: false,
+    startDay: 1,
     searchQuery: ""
   };
 
+  // 期間（月区切り）ヘルパー
+  function periodStart(d, sd) {
+    var y = d.getFullYear(), m = d.getMonth(), day = d.getDate();
+    return (day >= sd) ? new Date(y, m, sd) : new Date(y, m - 1, sd);
+  }
+  function periodEnd(start, sd) { return new Date(start.getFullYear(), start.getMonth() + 1, sd); }
+  function dateFromISO(iso) { var p = iso.split("-"); return new Date(+p[0], +p[1] - 1, +p[2]); }
+  function isoOf(d) { return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()); }
+
   function monthEntries() {
-    var ym = ymOf(state.cursor), a = state.active;
-    return state.entries.filter(function (e) { return e.type === a && e.date && e.date.slice(0, 7) === ym; })
-      .sort(function (x, y) { return x.date === y.date ? y.createdAt - x.createdAt : (x.date < y.date ? 1 : -1); });
+    var sd = state.startDay, a = state.active;
+    var start = state.cursor, end = periodEnd(start, sd);
+    return state.entries.filter(function (e) {
+      if (e.type !== a || !e.date) return false;
+      var dt = dateFromISO(e.date);
+      return dt >= start && dt < end;
+    }).sort(function (x, y) { return x.date === y.date ? y.createdAt - x.createdAt : (x.date < y.date ? 1 : -1); });
   }
   function replaceEntry(updated) {
     var i = state.entries.findIndex(function (e) { return e.id === updated.id; });
@@ -250,8 +275,8 @@
     var prev = el('<button class="nb" aria-label="前の月">\u2039</button>');
     var next = el('<button class="nb" aria-label="次の月">\u203A</button>');
     monthLabel = el('<div class="mlabel"></div>');
-    prev.onclick = function () { closeForms(); state.cursor = new Date(state.cursor.getFullYear(), state.cursor.getMonth() - 1, 1); renderMonth(); renderSummary(); renderAddArea(); renderList(); };
-    next.onclick = function () { closeForms(); state.cursor = new Date(state.cursor.getFullYear(), state.cursor.getMonth() + 1, 1); renderMonth(); renderSummary(); renderAddArea(); renderList(); };
+    prev.onclick = function () { closeForms(); state.cursor = new Date(state.cursor.getFullYear(), state.cursor.getMonth() - 1, state.startDay); renderMonth(); renderSummary(); renderAddArea(); renderList(); };
+    next.onclick = function () { closeForms(); state.cursor = new Date(state.cursor.getFullYear(), state.cursor.getMonth() + 1, state.startDay); renderMonth(); renderSummary(); renderAddArea(); renderList(); };
     navEl.appendChild(prev); navEl.appendChild(monthLabel); navEl.appendChild(next);
     col.appendChild(navEl); mainNodes.push(navEl);
 
@@ -329,8 +354,16 @@
   }
 
   function renderMonth() {
-    var isThis = ymOf(state.cursor) === ymOf(new Date());
-    monthLabel.innerHTML = '<span>' + state.cursor.getFullYear() + "年" + (state.cursor.getMonth() + 1) + "月</span>" + (isThis ? '<small>今月</small>' : "");
+    var sd = state.startDay, start = state.cursor, end = periodEnd(start, sd);
+    var t = new Date(); t.setHours(0, 0, 0, 0);
+    var isThis = (t >= start && t < end);
+    var big = start.getFullYear() + "年" + (start.getMonth() + 1) + "月";
+    var html = '<span>' + big + '</span>' + (isThis ? '<small>今月</small>' : "");
+    if (sd !== 1) {
+      var last = new Date(end.getTime() - 86400000);
+      html += '<div style="font-size:10px;color:rgba(0,0,0,0.3);margin-top:1px">' + (start.getMonth() + 1) + '/' + start.getDate() + '〜' + (last.getMonth() + 1) + '/' + last.getDate() + '</div>';
+    }
+    monthLabel.innerHTML = html;
   }
 
   /* ---------- 追加・保存・削除 ---------- */
@@ -362,7 +395,9 @@
   function buildForm(opts) {
     // opts: { tab, entry|null, onSave, onCancel, onDelete|null, submitLabel }
     var tab = opts.tab, e = opts.entry;
-    var defDate = e ? e.date : (ymOf(state.cursor) === ymOf(new Date()) ? todayStr() : firstOfMonth(state.cursor));
+    var start = state.cursor, end = periodEnd(start, state.startDay);
+    var t = new Date(); t.setHours(0, 0, 0, 0);
+    var defDate = e ? e.date : ((t >= start && t < end) ? todayStr() : isoOf(start));
     var card = el('<div class="card"></div>');
     var pad = el('<div class="formpad"></div>');
 
@@ -594,7 +629,7 @@
 
   /* ---------- 設定 ---------- */
   function exportData() {
-    var json = JSON.stringify({ app: "kakeibo", version: 1, exportedAt: new Date().toISOString(), entries: state.entries }, null, 2);
+    var json = JSON.stringify({ app: "kakeibo", version: 1, exportedAt: new Date().toISOString(), settings: { startDay: state.startDay }, entries: state.entries }, null, 2);
     var fn = "kakeibo-backup-" + todayStr() + ".json";
     try {
       if (navigator.canShare) {
@@ -614,11 +649,46 @@
       return { id: String(e.id), type: e.type, party: e.party || "", amount: parseAmount(e.amount), memo: e.memo || "", date: e.date || todayStr(), createdAt: e.createdAt || Date.now() };
     });
     dbClear().then(function () { return Promise.all(clean.map(dbPut)); }).then(function () {
-      state.entries = clean; done(clean.length);
+      state.entries = clean;
+      var sd = parsed && parsed.settings && parsed.settings.startDay;
+      if (typeof sd === "number" && sd >= 1 && sd <= 28) {
+        state.startDay = sd; dbSetMeta("startDay", sd);
+        state.cursor = periodStart(new Date(), sd);
+      }
+      done(clean.length);
     });
   }
   function renderSettings(msg) {
     settingsEl.innerHTML = "";
+
+    // 月の区切り
+    settingsEl.appendChild(el('<p class="seclbl">月の区切り</p>'));
+    var pcard = el('<div class="card"></div>');
+    var ppad = el('<div style="padding:14px 16px"></div>');
+    var prow = el('<div style="display:flex;align-items:center;gap:8px"></div>');
+    prow.appendChild(el('<span style="font-size:13px;color:rgba(0,0,0,0.55)">毎月</span>'));
+    var sel = el('<select class="daysel"></select>');
+    for (var d = 1; d <= 28; d++) { var o = el('<option value="' + d + '">' + d + '</option>'); if (d === state.startDay) o.setAttribute("selected", ""); sel.appendChild(o); }
+    prow.appendChild(sel);
+    prow.appendChild(el('<span style="font-size:13px;color:rgba(0,0,0,0.55)">日から</span>'));
+    ppad.appendChild(prow);
+    var preview = el('<p class="note" style="padding:8px 0 0"></p>');
+    function updatePreview() {
+      var st = periodStart(new Date(), state.startDay), en = periodEnd(st, state.startDay), last = new Date(en.getTime() - 86400000);
+      preview.textContent = state.startDay === 1
+        ? "暦どおり、1日から月末までを「その月」として集計します。"
+        : "例：今は " + (st.getMonth() + 1) + "/" + st.getDate() + "〜" + (last.getMonth() + 1) + "/" + last.getDate() + " を「" + (st.getMonth() + 1) + "月」として集計します。";
+    }
+    updatePreview();
+    sel.onchange = function () {
+      var v = parseInt(sel.value, 10) || 1;
+      state.startDay = v; dbSetMeta("startDay", v);
+      state.cursor = periodStart(new Date(), v);
+      updatePreview();
+    };
+    ppad.appendChild(preview);
+    pcard.appendChild(ppad);
+    settingsEl.appendChild(pcard);
 
     settingsEl.appendChild(el('<p class="seclbl">バックアップ</p>'));
     var bcard = el('<div class="card"></div>');
@@ -671,8 +741,12 @@
   /* ---------- init ---------- */
   buildShell();
   applyView();
-  dbAll().then(function (all) { state.entries = all; applyView(); })
-    .catch(function (err) { listEl.innerHTML = '<div class="empty">保存領域を開けませんでした<br>' + esc(String(err)) + '</div>'; });
+  Promise.all([dbAll(), dbGetMeta("startDay")]).then(function (res) {
+    state.entries = res[0];
+    if (typeof res[1] === "number" && res[1] >= 1 && res[1] <= 28) state.startDay = res[1];
+    state.cursor = periodStart(new Date(), state.startDay);
+    applyView();
+  }).catch(function (err) { listEl.innerHTML = '<div class="empty">保存領域を開けませんでした<br>' + esc(String(err)) + '</div>'; });
 })();
 </script>
 <script>if("serviceWorker" in navigator){window.addEventListener("load",function(){navigator.serviceWorker.register("./sw.js").catch(function(){});});}</script>

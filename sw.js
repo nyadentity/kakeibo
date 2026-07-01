@@ -1,5 +1,5 @@
 // 家計簿 PWA service worker
-const CACHE = "kakeibo-v7";
+const CACHE = "kakeibo-v9";
 const ASSETS = [
   "./",
   "./index.html",
