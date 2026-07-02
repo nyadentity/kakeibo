@@ -51,6 +51,8 @@
   .total { font-size: 26px; font-weight: 700; color: rgba(0,0,0,0.65); letter-spacing: .01em; }
   .total small { font-size: 12px; font-weight: 400; color: rgba(0,0,0,0.35); margin-left: 6px; }
   .count { font-size: 11px; color: rgba(0,0,0,0.33); margin-top: 3px; }
+  .budgetbar { height: 6px; background: rgba(0,0,0,0.06); border-radius: 99px; margin-top: 10px; overflow: hidden; }
+  .budgetbar > div { height: 100%; border-radius: 99px; background: #b8dda0; }
 
 
   .accrow { display: flex; align-items: baseline; gap: 8px; padding: 5px 0; }
@@ -122,6 +124,7 @@
   .confirmtext { font-size: 12px; color: rgba(0,0,0,0.55); margin-bottom: 12px; line-height: 1.5; }
   .danger { background: rgba(220,80,80,0.12); color: rgba(180,50,50,0.85); font-weight: 700; }
   .daysel { border: none; background: rgba(0,0,0,0.06); border-radius: 8px; padding: 7px 4px; font-size: 15px; font-weight: 700; color: rgba(0,0,0,0.6); outline: none; -webkit-appearance: none; appearance: none; min-width: 56px; text-align: center; text-align-last: center; }
+  .statsel { border: none; background: transparent; font-size: 12px; font-weight: 600; color: rgba(0,0,0,0.6); outline: none; -webkit-appearance: none; appearance: none; text-align: center; text-align-last: center; padding: 0 2px; }
   .okmsg { font-size: 11px; color: rgba(80,140,90,0.9); margin: -2px 0 10px; padding-left: 2px; }
 </style>
 </head>
@@ -217,6 +220,7 @@
     lastMain: "home",
     cursor: periodStart(now, 1),
     startDay: 1,
+    budget: 0,
     statsYear: now.getFullYear(),
     adding: false,
     addType: "transfer",
@@ -271,6 +275,16 @@
   function walletTotal(bal) {
     var s = 0;
     state.accounts.forEach(function (a) { if (a.wallet && a.type !== "card") s += (bal[a.id] || 0); });
+    return s;
+  }
+  function periodVarExpense() {
+    var start = state.cursor, end = periodEnd(start, state.startDay), s = 0;
+    state.txs.forEach(function (t) {
+      if (t.type === "expense" && !t.fixed && t.date) {
+        var dt = dateFromISO(t.date);
+        if (dt >= start && dt < end) s += (t.amount || 0);
+      }
+    });
     return s;
   }
 
@@ -596,19 +610,32 @@
       return;
     }
 
-    // 生活費（予算と残り）
+    // 生活費予算（変動費で減る）／なければ残高
     var wallets = state.accounts.filter(function (a) { return a.wallet && a.type !== "card"; });
     var wcard = el('<div class="card"></div>');
     var wpad = el('<div class="cardpad"></div>');
     var wbar = el('<div class="bar" style="min-height:42px;background:#b8dda0"></div>');
     var wbody = el('<div class="body"></div>');
-    wbody.appendChild(el('<div class="seclbl" style="margin:0 0 6px">生活費のこり</div>'));
-    if (!wallets.length) {
-      wbody.appendChild(el('<p class="confirmtext" style="margin:0">設定の口座編集で「生活費に含める」を付けた口座（現金・電子マネー）の合計をここに表示します。</p>'));
+    var walletBal = walletTotal(bal);
+    if (state.budget > 0) {
+      var spent = periodVarExpense();
+      var left = state.budget - spent;
+      wbody.appendChild(el('<div class="seclbl" style="margin:0 0 6px">生活費予算のこり</div>'));
+      wbody.appendChild(el('<div class="total">' + yen(left) + '<small>/ 予算 ' + yen(state.budget) + '</small></div>'));
+      var pct = Math.max(0, Math.min(100, Math.round(left / state.budget * 100)));
+      var barI = el('<div class="budgetbar"><div style="width:' + pct + '%"></div></div>');
+      if (left <= 0) barI.querySelector("div").style.background = "#f2c0d8";
+      else if (left / state.budget < 0.2) barI.querySelector("div").style.background = "#fbd5ac";
+      wbody.appendChild(barI);
+      wbody.appendChild(el('<div class="subnote">このサイクルの変動費 ' + yen(spent) + (wallets.length ? '　｜　生活費残高 ' + yen(walletBal) : '') + '</div>'));
     } else {
-      var remain = walletTotal(bal);
-      wbody.appendChild(el('<div class="total">' + yen(remain) + '</div>'));
-      wbody.appendChild(el('<div class="subnote">' + wallets.map(function (a) { return esc(a.name) + " " + yen(bal[a.id] || 0); }).join("　") + '</div>'));
+      wbody.appendChild(el('<div class="seclbl" style="margin:0 0 6px">生活費のこり</div>'));
+      if (!wallets.length) {
+        wbody.appendChild(el('<p class="confirmtext" style="margin:0">設定で予算を決めると、変動費で減るバーを表示します。口座編集の「生活費に含める」で残高合計も出せます。</p>'));
+      } else {
+        wbody.appendChild(el('<div class="total">' + yen(walletBal) + '</div>'));
+        wbody.appendChild(el('<div class="subnote">' + wallets.map(function (a) { return esc(a.name) + " " + yen(bal[a.id] || 0); }).join("　") + '</div>'));
+      }
     }
     wpad.appendChild(wbar); wpad.appendChild(wbody); wcard.appendChild(wpad);
     homeEl.appendChild(wcard);
@@ -762,65 +789,81 @@
   /* ---------- 統計 ---------- */
   function renderStats() {
     statsEl.innerHTML = "";
-    var thisYear = new Date().getFullYear();
+    var sd = state.startDay;
+    if (!state.statsCursor) state.statsCursor = periodStart(new Date(), sd);
+    var sc = state.statsCursor;
+    var selYear = sc.getFullYear(), selMonth = sc.getMonth();
+    function periodKey(t) { var ps = periodStart(dateFromISO(t.date), sd); return { y: ps.getFullYear(), m: ps.getMonth() }; }
 
+    // 月ナビ（‹ › で前後、ラベルの年・月プルダウンで自由移動）
     var nav = el('<div class="monthnav"></div>');
     var prev = el('<button class="nb">\u2039</button>');
     var next = el('<button class="nb">\u203A</button>');
-    var lbl = el('<div class="mlabel"><span>' + state.statsYear + '年</span></div>');
-    prev.onclick = function () { state.statsYear--; renderStats(); };
-    next.onclick = function () { if (state.statsYear < thisYear) { state.statsYear++; renderStats(); } };
-    if (state.statsYear >= thisYear) next.setAttribute("disabled", "");
+    var end = periodEnd(sc, sd), last = new Date(end.getTime() - 86400000);
+    var lbl = el('<div class="mlabel"></div>');
+    var picker = el('<div style="display:flex;align-items:center;justify-content:center;gap:2px"></div>');
+    var minY = selYear - 5, maxY = new Date().getFullYear();
+    state.txs.forEach(function (t) { if (t.date) { var y = +t.date.slice(0, 4); if (y < minY) minY = y; } });
+    var ysel = el('<select class="statsel"></select>');
+    for (var yy = maxY; yy >= minY; yy--) { var yo = el('<option value="' + yy + '">' + yy + '</option>'); if (yy === selYear) yo.setAttribute("selected", ""); ysel.appendChild(yo); }
+    var msel = el('<select class="statsel"></select>');
+    for (var mm = 0; mm < 12; mm++) { var mo = el('<option value="' + mm + '">' + (mm + 1) + '</option>'); if (mm === selMonth) mo.setAttribute("selected", ""); msel.appendChild(mo); }
+    picker.appendChild(ysel); picker.appendChild(el('<span style="font-size:12px;color:rgba(0,0,0,0.5)">年</span>'));
+    picker.appendChild(msel); picker.appendChild(el('<span style="font-size:12px;color:rgba(0,0,0,0.5)">月</span>'));
+    ysel.onchange = function () { state.statsCursor = new Date(+ysel.value, selMonth, sd); renderStats(); };
+    msel.onchange = function () { state.statsCursor = new Date(selYear, +msel.value, sd); renderStats(); };
+    lbl.appendChild(picker);
+    if (sd !== 1) lbl.appendChild(el('<div style="font-size:10px;color:rgba(0,0,0,0.3);margin-top:1px">' + (sc.getMonth() + 1) + '/' + sc.getDate() + '〜' + (last.getMonth() + 1) + '/' + last.getDate() + '</div>'));
+    prev.onclick = function () { state.statsCursor = new Date(selYear, selMonth - 1, sd); renderStats(); };
+    next.onclick = function () { state.statsCursor = new Date(selYear, selMonth + 1, sd); renderStats(); };
     nav.appendChild(prev); nav.appendChild(lbl); nav.appendChild(next);
     statsEl.appendChild(nav);
 
-    var sd = state.startDay;
-    function periodKey(t) { var ps = periodStart(dateFromISO(t.date), sd); return { y: ps.getFullYear(), m: ps.getMonth() }; }
-
-    // 収入・支出の月別棒グラフ
+    // 収入・支出の月別棒グラフ（選択月の年・選択月を強調）
     [{ key: "income", label: "収入", color: "#c2d8f0" }, { key: "expense", label: "支出", color: "#f2c0d8" }].forEach(function (def) {
       var totals = new Array(12).fill(0);
       state.txs.forEach(function (t) {
         if (t.type !== def.key || !t.date) return;
         var pk = periodKey(t);
-        if (pk.y === state.statsYear) totals[pk.m] += (t.amount || 0);
+        if (pk.y === selYear) totals[pk.m] += (t.amount || 0);
       });
-      var yearTotal = totals.reduce(function (a, b) { return a + b; }, 0);
       var max = Math.max.apply(null, totals.concat([1]));
+      var monthVal = totals[selMonth];
 
       var card = el('<div class="card"></div>');
       var pad = el('<div class="cardpad"></div>');
       var bar = el('<div class="bar" style="min-height:42px"></div>'); bar.style.background = def.color;
       var body = el('<div class="body"></div>');
-      body.appendChild(el('<div class="seclbl" style="margin:0 0 4px">' + def.label + '</div>'));
-      body.appendChild(el('<div class="total" style="font-size:22px">' + yen(yearTotal) + '<small>年間合計</small></div>'));
+      body.appendChild(el('<div class="seclbl" style="margin:0 0 4px">' + def.label + '（' + (selMonth + 1) + '月）</div>'));
+      body.appendChild(el('<div class="total" style="font-size:22px">' + yen(monthVal) + '<small>' + selYear + '年 月別</small></div>'));
       var read = el('<div class="statread"></div>');
-      read.textContent = yearTotal ? "棒をタップで月別の額" : "この年の記録はありません";
+      read.textContent = "棒をタップで各月の額（水色＝選択中の月）";
       var bars = el('<div class="statbars"></div>');
       totals.forEach(function (v, i) {
         var colEl = el('<div class="statcol"></div>');
         var b = el('<div class="statbar"></div>');
-        if (v > 0) { b.style.background = def.color; b.style.height = Math.max(3, Math.round(v / max * 50)) + "px"; }
-        else { b.style.background = "rgba(0,0,0,0.06)"; b.style.height = "1px"; }
-        colEl.onclick = function () { read.textContent = (i + 1) + "月　" + yen(v); };
+        var isSel = (i === selMonth);
+        if (v > 0) { b.style.background = isSel ? "#7fb0d8" : def.color; b.style.height = Math.max(3, Math.round(v / max * 50)) + "px"; }
+        else { b.style.background = isSel ? "rgba(127,176,216,0.5)" : "rgba(0,0,0,0.06)"; b.style.height = isSel ? "3px" : "1px"; }
+        colEl.onclick = function () { state.statsCursor = new Date(selYear, i, sd); renderStats(); };
         colEl.appendChild(b); bars.appendChild(colEl);
       });
       var labels = el('<div class="statlabels"></div>');
-      for (var m2 = 1; m2 <= 12; m2++) labels.appendChild(el('<div class="statlabel">' + m2 + '</div>'));
+      for (var m2 = 1; m2 <= 12; m2++) { var lb = el('<div class="statlabel">' + m2 + '</div>'); if (m2 - 1 === selMonth) { lb.style.color = "rgba(0,0,0,0.55)"; lb.style.fontWeight = "700"; } labels.appendChild(lb); }
       body.appendChild(read); body.appendChild(bars); body.appendChild(labels);
       pad.appendChild(bar); pad.appendChild(body); card.appendChild(pad);
       statsEl.appendChild(card);
     });
 
-    // 支出の内訳（項目別・固定/変動）
-    var exp = state.txs.filter(function (t) { return t.type === "expense" && t.date && periodKey(t).y === state.statsYear; });
+    // 支出の内訳（選択月・項目別・固定/変動）
+    var exp = state.txs.filter(function (t) { if (t.type !== "expense" || !t.date) return false; var pk = periodKey(t); return pk.y === selYear && pk.m === selMonth; });
     var card2 = el('<div class="card"></div>');
     var pad2 = el('<div class="cardpad"></div>');
     var bar2 = el('<div class="bar" style="min-height:42px;background:#f2c0d8"></div>');
     var body2 = el('<div class="body"></div>');
-    body2.appendChild(el('<div class="seclbl" style="margin:0 0 4px">支出の内訳（' + state.statsYear + '年）</div>'));
+    body2.appendChild(el('<div class="seclbl" style="margin:0 0 4px">支出の内訳（' + (selMonth + 1) + '月）</div>'));
     if (!exp.length) {
-      body2.appendChild(el('<div class="empty" style="padding:14px 0">記録された支出はありません</div>'));
+      body2.appendChild(el('<div class="empty" style="padding:14px 0">この月に記録された支出はありません</div>'));
     } else {
       var fixedSum = 0, varSum = 0, catMap = {};
       exp.forEach(function (t) {
@@ -828,21 +871,20 @@
         var k = t.category || "（項目なし）";
         catMap[k] = (catMap[k] || 0) + t.amount;
       });
-      var fv = el('<div class="bdrow"><span class="bdname">固定費</span><span class="bdamt">' + yen(fixedSum) + '</span></div>');
-      var vv = el('<div class="bdrow"><span class="bdname">変動費</span><span class="bdamt">' + yen(varSum) + '</span></div>');
-      body2.appendChild(fv); body2.appendChild(vv);
+      body2.appendChild(el('<div class="bdrow"><span class="bdname">固定費</span><span class="bdamt">' + yen(fixedSum) + '</span></div>'));
+      body2.appendChild(el('<div class="bdrow"><span class="bdname">変動費</span><span class="bdamt">' + yen(varSum) + '</span></div>'));
       var bd = el('<div class="breakline"></div>');
       Object.keys(catMap).map(function (k) { return [k, catMap[k]]; })
         .sort(function (a, b) { return b[1] - a[1]; })
         .forEach(function (r) { bd.appendChild(el('<div class="bdrow"><span class="bdname">' + esc(r[0]) + '</span><span class="bdamt">' + yen(r[1]) + '</span></div>')); });
       body2.appendChild(bd);
-      body2.appendChild(el('<div class="subnote" style="margin-top:8px">※記録した支出のみ。封筒型で記録していない生活費は含みません</div>'));
+      body2.appendChild(el('<div class="subnote" style="margin-top:8px">※記録した支出のみ。記録していない生活費は含みません</div>'));
     }
     pad2.appendChild(bar2); pad2.appendChild(body2); card2.appendChild(pad2);
     statsEl.appendChild(card2);
 
-    // ★ 重要な支出（記憶しておくべき支出）
-    var imp = state.txs.filter(function (t) { return t.type === "expense" && t.important && t.date && periodKey(t).y === state.statsYear; })
+    // ★ 重要な支出（選択月）
+    var imp = state.txs.filter(function (t) { if (t.type !== "expense" || !t.important || !t.date) return false; var pk = periodKey(t); return pk.y === selYear && pk.m === selMonth; })
       .sort(function (a, b) { return a.date === b.date ? b.createdAt - a.createdAt : (a.date < b.date ? 1 : -1); });
     if (imp.length) {
       var card3 = el('<div class="card"></div>');
@@ -850,7 +892,7 @@
       var bar3 = el('<div class="bar" style="min-height:42px;background:#f2c0d8"></div>');
       var body3 = el('<div class="body"></div>');
       var impTotal = imp.reduce(function (s, t) { return s + (t.amount || 0); }, 0);
-      body3.appendChild(el('<div class="seclbl" style="margin:0 0 6px">★ 重要な支出（' + state.statsYear + '年 / ' + imp.length + '件 ' + yen(impTotal) + '）</div>'));
+      body3.appendChild(el('<div class="seclbl" style="margin:0 0 6px">重要な支出（' + (selMonth + 1) + '月 / ' + imp.length + '件 ' + yen(impTotal) + '）</div>'));
       imp.forEach(function (t) {
         var row = el('<div class="bdrow" style="align-items:flex-start"></div>');
         var left = el('<div style="min-width:0;flex:1"></div>');
@@ -871,7 +913,7 @@
   var acctFormOpen = null; // "new" | account id | null
 
   function exportData() {
-    var json = JSON.stringify({ app: "kakeibo", version: 2, exportedAt: new Date().toISOString(), settings: { startDay: state.startDay }, accounts: state.accounts, txs: state.txs }, null, 2);
+    var json = JSON.stringify({ app: "kakeibo", version: 2, exportedAt: new Date().toISOString(), settings: { startDay: state.startDay, budget: state.budget }, accounts: state.accounts, txs: state.txs }, null, 2);
     var fn = "kakeibo-backup-" + todayStr() + ".json";
     try {
       if (navigator.canShare) {
@@ -899,6 +941,7 @@
       ensureOrder(); sortAccounts();
       var st = parsed.settings || {};
       if (typeof st.startDay === "number" && st.startDay >= 1 && st.startDay <= 28) { state.startDay = st.startDay; dbSetMeta("startDay", st.startDay); }
+      if (typeof st.budget === "number" && st.budget >= 0) { state.budget = st.budget; dbSetMeta("budget", st.budget); }
       state.cursor = periodStart(new Date(), state.startDay);
       done(accs.length, txs.length);
     });
@@ -1028,15 +1071,25 @@
       var lpad = el('<div style="padding:10px 16px"></div>');
       sortAccounts();
       state.accounts.forEach(function (a) {
-        if (acctFormOpen === a.id) return;
+        var editing = (acctFormOpen === a.id);
         var row = el('<div class="accrow"></div>');
+        if (editing) {
+          row.style.background = "rgba(184,221,160,0.28)";
+          row.style.borderRadius = "8px";
+          row.style.padding = "5px 8px";
+          row.style.margin = "0 -8px";
+        }
         row.appendChild(el('<span class="rtag2">' + accTypeOf(a.type).label + '</span>'));
         row.appendChild(el('<span class="accname">' + esc(a.name) + '</span>'));
         if (a.wallet && a.type !== "card") row.appendChild(el('<span class="wtag">生活費</span>'));
         row.appendChild(el('<span class="accbal" style="font-size:12px">' + yen(bal[a.id] || 0) + '</span>'));
-        var eb = el('<button class="editbtn" style="margin-left:8px">編集</button>');
-        eb.onclick = function () { acctFormOpen = a.id; renderSettings(); };
-        row.appendChild(eb);
+        if (editing) {
+          row.appendChild(el('<span class="rtag2" style="margin-left:8px;background:rgba(184,221,160,0.5)">編集中</span>'));
+        } else {
+          var eb = el('<button class="editbtn" style="margin-left:8px">編集</button>');
+          eb.onclick = function () { acctFormOpen = a.id; renderSettings(); };
+          row.appendChild(eb);
+        }
         lpad.appendChild(row);
       });
       lcard.appendChild(lpad);
@@ -1053,6 +1106,28 @@
       ab.onclick = function () { acctFormOpen = "new"; renderSettings(); };
       settingsEl.appendChild(ab);
     }
+
+    // 生活費の予算
+    settingsEl.appendChild(el('<p class="seclbl">生活費の予算</p>'));
+    var bcard2 = el('<div class="card"></div>');
+    var bpad2 = el('<div style="padding:14px 16px"></div>');
+    var brow2 = el('<div style="display:flex;align-items:center;gap:8px"></div>');
+    brow2.appendChild(el('<span style="font-size:13px;color:rgba(0,0,0,0.55)">1か月</span>'));
+    var bInp = el('<input class="finp amt" type="number" inputmode="numeric" placeholder="0" style="width:120px;flex:none" />');
+    if (state.budget > 0) bInp.value = state.budget;
+    brow2.appendChild(bInp);
+    brow2.appendChild(el('<span style="font-size:13px;color:rgba(0,0,0,0.55)">円</span>'));
+    var bsave = el('<button class="editbtn" style="margin-left:auto">保存</button>');
+    bsave.onclick = function () {
+      var v = Math.max(0, parseAmount(bInp.value));
+      state.budget = v; dbSetMeta("budget", v);
+      renderSettings(v > 0 ? "予算を保存しました" : "予算をオフにしました");
+    };
+    brow2.appendChild(bsave);
+    bpad2.appendChild(brow2);
+    bpad2.appendChild(el('<p class="note" style="padding:8px 0 0">記録した「変動費（固定費チェックなしの支出）」を、月の区切りごとにこの予算から差し引いてホームのバーに表示します。固定費や記録していない生活費は差し引きません。0にすると予算バーをオフにして残高表示に戻します。</p>'));
+    bcard2.appendChild(bpad2);
+    settingsEl.appendChild(bcard2);
 
     // 月の区切り
     settingsEl.appendChild(el('<p class="seclbl">月の区切り</p>'));
@@ -1077,6 +1152,7 @@
       var v = parseInt(sel.value, 10) || 1;
       state.startDay = v; dbSetMeta("startDay", v);
       state.cursor = periodStart(new Date(), v);
+      state.statsCursor = periodStart(new Date(), v);
       updatePreview();
     };
     ppad.appendChild(preview);
@@ -1141,10 +1217,11 @@
   /* ---------- init ---------- */
   buildShell();
   renderView();
-  Promise.all([dbAll(ACC), dbAll(TX), dbGetMeta("startDay")]).then(function (res) {
+  Promise.all([dbAll(ACC), dbAll(TX), dbGetMeta("startDay"), dbGetMeta("budget")]).then(function (res) {
     state.accounts = res[0];
     state.txs = res[1];
     if (typeof res[2] === "number" && res[2] >= 1 && res[2] <= 28) state.startDay = res[2];
+    if (typeof res[3] === "number" && res[3] >= 0) state.budget = res[3];
     ensureOrder(); sortAccounts();
     state.cursor = periodStart(new Date(), state.startDay);
     renderView();
