@@ -1121,13 +1121,14 @@
     bsave.onclick = function () {
       var v = Math.max(0, parseAmount(bInp.value));
       state.budget = v; dbSetMeta("budget", v);
-      renderSettings(v > 0 ? "予算を保存しました" : "予算をオフにしました");
+      renderSettings({ where: "budget", text: v > 0 ? "予算を保存しました" : "予算をオフにしました" });
     };
     brow2.appendChild(bsave);
     bpad2.appendChild(brow2);
     bpad2.appendChild(el('<p class="note" style="padding:8px 0 0">記録した「変動費（固定費チェックなしの支出）」を、月の区切りごとにこの予算から差し引いてホームのバーに表示します。固定費や記録していない生活費は差し引きません。0にすると予算バーをオフにして残高表示に戻します。</p>'));
     bcard2.appendChild(bpad2);
     settingsEl.appendChild(bcard2);
+    if (msg && msg.where === "budget") settingsEl.appendChild(el('<p class="okmsg">' + esc(msg.text) + '</p>'));
 
     // 月の区切り
     settingsEl.appendChild(el('<p class="seclbl">月の区切り</p>'));
@@ -1171,7 +1172,7 @@
       var f = ev.target.files[0]; if (!f) return;
       var r = new FileReader();
       r.onload = function (e2) {
-        try { var parsed = JSON.parse(e2.target.result); importData(parsed, function (na, nt) { renderSettings("口座" + na + "件・記録" + nt + "件を復元しました"); }); }
+        try { var parsed = JSON.parse(e2.target.result); importData(parsed, function (na, nt) { renderSettings({ where: "backup", text: "口座" + na + "件・記録" + nt + "件を復元しました" }); }); }
         catch (err) { alert("読み込みに失敗しました"); }
       };
       r.readAsText(f); ev.target.value = "";
@@ -1182,7 +1183,7 @@
     bcard.appendChild(el('<p class="note">口座・記録・設定はこの端末のブラウザ（IndexedDB）に自動保存されます。機種変更や削除に備えて、ときどきファイルとして保存しておくと安心です。</p>'));
     settingsEl.appendChild(bcard);
 
-    if (msg) settingsEl.appendChild(el('<p class="okmsg">' + esc(msg) + '</p>'));
+    if (msg && msg.where === "backup") settingsEl.appendChild(el('<p class="okmsg">' + esc(msg.text) + '</p>'));
 
     // データ管理
     settingsEl.appendChild(el('<p class="seclbl">データ管理</p>'));
