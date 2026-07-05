@@ -134,6 +134,8 @@
 (function () {
   "use strict";
 
+  var APP_VERSION = "1.0"; // 設定画面の最後に表示。更新のたびにClaudeが自動で上げる
+
   /* ---------- IndexedDB ---------- */
   var DB_NAME = "kakeibo-db", ACC = "accounts", TX = "txs", META = "meta";
   function openDB() {
@@ -274,7 +276,7 @@
   }
   function walletTotal(bal) {
     var s = 0;
-    state.accounts.forEach(function (a) { if (a.wallet && a.type !== "card") s += (bal[a.id] || 0); });
+    state.accounts.forEach(function (a) { if (a.wallet && !a.hidden && a.type !== "card") s += (bal[a.id] || 0); });
     return s;
   }
   function periodVarExpense() {
@@ -611,7 +613,7 @@
     }
 
     // 生活費予算（変動費で減る）／なければ残高
-    var wallets = state.accounts.filter(function (a) { return a.wallet && a.type !== "card"; });
+    var wallets = state.accounts.filter(function (a) { return a.wallet && !a.hidden && a.type !== "card"; });
     var wcard = el('<div class="card"></div>');
     var wpad = el('<div class="cardpad"></div>');
     var wbar = el('<div class="bar" style="min-height:42px;background:#b8dda0"></div>');
@@ -642,7 +644,7 @@
 
     // 口座残高（種類ごと）
     ACCTYPES.forEach(function (at) {
-      var list = accsOfType(at.key);
+      var list = accsOfType(at.key).filter(function (a) { return !a.hidden; });
       if (!list.length) return;
       var card = el('<div class="card"></div>');
       var pad = el('<div class="cardpad"></div>');
@@ -979,6 +981,11 @@
     if (acc && acc.wallet) walletChk.checked = true;
     pad.appendChild(wl);
 
+    var hl = el('<label class="fcheck" style="margin-bottom:12px"><input type="checkbox" />ホームに表示しない（生活費の合計からも外れます）</label>');
+    var hiddenChk = hl.querySelector("input");
+    if (acc && acc.hidden) hiddenChk.checked = true;
+    pad.appendChild(hl);
+
     // カード用の設定
     var cardOpts = el('<div></div>');
     var pdSel = el('<select class="fsel"></select>');
@@ -1041,7 +1048,7 @@
       var t = typeSel.value;
       var entered = parseAmount(balInp.value);
       if (isNew) {
-        var a = { id: uid(), name: name, type: t, initBalance: entered, wallet: (t === "cash" || t === "emoney") ? walletChk.checked : false, order: state.accounts.length, createdAt: Date.now() };
+        var a = { id: uid(), name: name, type: t, initBalance: entered, wallet: (t === "cash" || t === "emoney") ? walletChk.checked : false, hidden: hiddenChk.checked, order: state.accounts.length, createdAt: Date.now() };
         if (t === "card") { a.payDay = pdSel.value ? parseInt(pdSel.value, 10) : null; a.payFrom = srcSel.value || null; }
         state.accounts.push(a); dbPut(ACC, a);
       } else {
@@ -1049,6 +1056,7 @@
         acc.name = name;
         acc.initBalance = (acc.initBalance || 0) + (entered - cur); // 入力残高に合わせて補正
         acc.wallet = (acc.type === "cash" || acc.type === "emoney") ? walletChk.checked : false;
+        acc.hidden = hiddenChk.checked;
         if (acc.type === "card") { acc.payDay = pdSel.value ? parseInt(pdSel.value, 10) : null; acc.payFrom = srcSel.value || null; }
         dbPut(ACC, acc);
       }
@@ -1082,6 +1090,7 @@
         row.appendChild(el('<span class="rtag2">' + accTypeOf(a.type).label + '</span>'));
         row.appendChild(el('<span class="accname">' + esc(a.name) + '</span>'));
         if (a.wallet && a.type !== "card") row.appendChild(el('<span class="wtag">生活費</span>'));
+        if (a.hidden) row.appendChild(el('<span class="rtag2" style="background:rgba(0,0,0,0.08)">非表示</span>'));
         row.appendChild(el('<span class="accbal" style="font-size:12px">' + yen(bal[a.id] || 0) + '</span>'));
         if (editing) {
           row.appendChild(el('<span class="rtag2" style="margin-left:8px;background:rgba(184,221,160,0.5)">編集中</span>'));
@@ -1213,6 +1222,13 @@
     paint();
     dcard.appendChild(dpad);
     settingsEl.appendChild(dcard);
+
+    // アプリの更新について＋バージョン
+    settingsEl.appendChild(el('<p class="seclbl">アプリの更新について</p>'));
+    var ucard = el('<div class="card"></div>');
+    ucard.appendChild(el('<p class="note" style="padding:12px 16px">新しいバージョンが公開されると、アプリを開いたときに自動で更新されます。反映されないときは、アプリを一度完全に閉じて開き直してください。データはそのまま引き継がれます。</p>'));
+    settingsEl.appendChild(ucard);
+    settingsEl.appendChild(el('<p style="text-align:center;margin:18px 0 8px;font-size:11px;color:rgba(0,0,0,0.25)">バージョン ' + APP_VERSION + '</p>'));
   }
 
   /* ---------- init ---------- */
@@ -1231,6 +1247,35 @@
   });
 })();
 </script>
-<script>if("serviceWorker" in navigator){window.addEventListener("load",function(){navigator.serviceWorker.register("./sw.js").catch(function(){});});}</script>
+<script>
+// PWA登録＋自動更新（開くたび更新チェック／新版検出で即切り替え／復帰時も再チェック）
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", function () {
+    navigator.serviceWorker.register("./sw.js").then(function (reg) {
+      reg.update().catch(function () {});
+      reg.addEventListener("updatefound", function () {
+        var nw = reg.installing;
+        if (!nw) return;
+        nw.addEventListener("statechange", function () {
+          if (nw.state === "installed" && navigator.serviceWorker.controller) {
+            nw.postMessage("skipWaiting");
+          }
+        });
+      });
+    }).catch(function () {});
+    var refreshing = false;
+    navigator.serviceWorker.addEventListener("controllerchange", function () {
+      if (refreshing) return;
+      refreshing = true;
+      window.location.reload();
+    });
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState === "visible") {
+        navigator.serviceWorker.getRegistration().then(function (r) { if (r) r.update(); }).catch(function () {});
+      }
+    });
+  });
+}
+</script>
 </body>
 </html>
