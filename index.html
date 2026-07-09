@@ -134,7 +134,7 @@
 (function () {
   "use strict";
 
-  var APP_VERSION = "1.1"; // 設定画面の最後に表示。更新のたびにClaudeが自動で上げる
+  var APP_VERSION = "1.6"; // 設定画面の最後に表示。更新のたびにClaudeが自動で上げる
 
   /* ---------- IndexedDB ---------- */
   var DB_NAME = "kakeibo-db", ACC = "accounts", TX = "txs", META = "meta";
@@ -650,7 +650,7 @@
       if (!list.length) return;
       var card = el('<div class="card"></div>');
       var pad = el('<div class="cardpad"></div>');
-      var barColor = at.key === "card" ? "#fbd5ac" : (at.key === "bank" ? "#c2d8f0" : (at.key === "cash" ? "#b8dda0" : (at.key === "loan" ? "#d9d9d9" : "#f2c0d8")));
+      var barColor = at.key === "card" ? "#fbd5ac" : (at.key === "bank" ? "#c2d8f0" : (at.key === "cash" ? "#b8dda0" : (at.key === "loan" ? "#f1e2a0" : "#f2c0d8")));
       var bar = el('<div class="bar" style="min-height:42px"></div>'); bar.style.background = barColor;
       var body = el('<div class="body"></div>');
       body.appendChild(el('<div class="seclbl" style="margin:0 0 4px">' + at.label + (at.key === "card" ? '（未払い）' : '') + '</div>'));
