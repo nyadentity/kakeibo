@@ -134,7 +134,7 @@
 (function () {
   "use strict";
 
-  var APP_VERSION = "1.0"; // 設定画面の最後に表示。更新のたびにClaudeが自動で上げる
+  var APP_VERSION = "1.1"; // 設定画面の最後に表示。更新のたびにClaudeが自動で上げる
 
   /* ---------- IndexedDB ---------- */
   var DB_NAME = "kakeibo-db", ACC = "accounts", TX = "txs", META = "meta";
@@ -187,7 +187,8 @@
     { key: "bank",   label: "銀行" },
     { key: "cash",   label: "現金" },
     { key: "emoney", label: "電子マネー" },
-    { key: "card",   label: "カード" }
+    { key: "card",   label: "カード" },
+    { key: "loan",   label: "貸し借り" }
   ];
   function accTypeOf(k) { for (var i = 0; i < ACCTYPES.length; i++) if (ACCTYPES[i].key === k) return ACCTYPES[i]; }
   var CAT_DEFAULTS = ["食費","日用品","家賃","光熱費","通信","医療","交通","交際","娯楽","子ども","その他"];
@@ -235,6 +236,7 @@
   function accName(id) { var a = accById(id); return a ? a.name : "（削除済み）"; }
   function accsOfType(t) { return state.accounts.filter(function (a) { return a.type === t; }); }
   function nonCardAccs() { return state.accounts.filter(function (a) { return a.type !== "card"; }); }
+  function assetAccs() { return state.accounts.filter(function (a) { return a.type === "bank" || a.type === "cash" || a.type === "emoney"; }); }
   function sortAccounts() {
     state.accounts.sort(function (a, b) {
       var oa = (typeof a.order === "number") ? a.order : 1e9, ob = (typeof b.order === "number") ? b.order : 1e9;
@@ -496,7 +498,7 @@
     }
 
     if (type === "income") {
-      toSel = accSelect(nonCardAccs(), tx ? tx.toId : "", "入金先の口座");
+      toSel = accSelect(assetAccs(), tx ? tx.toId : "", "入金先の口座");
       wrap.appendChild(fieldRow("入金先", toSel));
     } else if (type === "transfer") {
       fromSel = accSelect(nonCardAccs(), tx ? tx.fromId : "", "出金元の口座");
@@ -604,7 +606,7 @@
     var bal = balances();
 
     if (!state.accounts.length) {
-      var g = el('<div class="card"><div class="formpad"><p class="confirmtext">まず「設定」から口座（銀行・現金・電子マネー・カード）を追加して、現在の残高を入れてください。</p></div></div>');
+      var g = el('<div class="card"><div class="formpad"><p class="confirmtext">まず「設定」から口座（銀行・現金・電子マネー・カード・貸し借り）を追加して、現在の残高を入れてください。</p></div></div>');
       var gb = el('<button class="sbtn" style="margin:0 16px 14px;width:calc(100% - 32px)">設定を開く</button>');
       gb.onclick = function () { setActive("settings"); };
       g.appendChild(gb);
@@ -648,7 +650,7 @@
       if (!list.length) return;
       var card = el('<div class="card"></div>');
       var pad = el('<div class="cardpad"></div>');
-      var barColor = at.key === "card" ? "#fbd5ac" : (at.key === "bank" ? "#c2d8f0" : (at.key === "cash" ? "#b8dda0" : "#f2c0d8"));
+      var barColor = at.key === "card" ? "#fbd5ac" : (at.key === "bank" ? "#c2d8f0" : (at.key === "cash" ? "#b8dda0" : (at.key === "loan" ? "#d9d9d9" : "#f2c0d8")));
       var bar = el('<div class="bar" style="min-height:42px"></div>'); bar.style.background = barColor;
       var body = el('<div class="body"></div>');
       body.appendChild(el('<div class="seclbl" style="margin:0 0 4px">' + at.label + (at.key === "card" ? '（未払い）' : '') + '</div>'));
@@ -656,7 +658,13 @@
         var row = el('<div class="accrow"></div>');
         row.appendChild(el('<span class="accname">' + esc(a.name) + '</span>'));
         if (a.wallet && a.type !== "card") row.appendChild(el('<span class="wtag">生活費</span>'));
-        row.appendChild(el('<span class="accbal">' + yen(bal[a.id] || 0) + '</span>'));
+        var v = bal[a.id] || 0;
+        if (at.key === "loan" && v !== 0) {
+          row.appendChild(el('<span class="rtag2" style="margin-left:auto;flex-shrink:0;background:' + (v > 0 ? "rgba(184,221,160,0.45)" : "rgba(242,192,216,0.45)") + '">' + (v > 0 ? "貸し" : "借り") + '</span>'));
+          row.appendChild(el('<span class="accbal" style="margin-left:8px">' + yen(Math.abs(v)) + '</span>'));
+        } else {
+          row.appendChild(el('<span class="accbal">' + yen(v) + '</span>'));
+        }
         body.appendChild(row);
         if (a.type === "card" && a.payDay) {
           body.appendChild(el('<div class="subnote">毎月' + a.payDay + '日ごろ引き落とし' + (a.payFrom ? '（' + esc(accName(a.payFrom)) + '）' : '') + '</div>'));
@@ -973,7 +981,9 @@
 
     var balInp = el('<input class="finp amt" type="number" inputmode="numeric" placeholder="0" />');
     if (acc) balInp.value = bal[acc.id] || 0;
-    var bf = el('<div class="ffield" style="margin-bottom:12px"><div class="flabel">現在の残高' + '（カードは未払い額）</div></div>');
+    var balLbl = el('<div class="flabel">現在の残高</div>');
+    var bf = el('<div class="ffield" style="margin-bottom:12px"></div>');
+    bf.appendChild(balLbl);
     bf.appendChild(balInp); pad.appendChild(bf);
 
     var wl = el('<label class="fcheck" style="margin-bottom:12px"><input type="checkbox" />生活費に含める（残り予算の対象）</label>');
@@ -1002,6 +1012,8 @@
       var t = typeSel.value;
       cardOpts.style.display = t === "card" ? "" : "none";
       wl.style.display = (t === "cash" || t === "emoney") ? "" : "none";
+      balLbl.textContent = t === "card" ? "現在の未払い額" : (t === "loan" ? "現在の貸し借り（貸し＝プラス／借り＝マイナス）" : "現在の残高");
+      nameInp.placeholder = t === "loan" ? "相手の名前（例：母、友人A）" : "例：〇〇銀行、自分の財布、PayPay";
     }
     typeSel.addEventListener("change", syncType);
     syncType();
@@ -1248,7 +1260,6 @@
 })();
 </script>
 <script>
-// PWA登録＋自動更新（開くたび更新チェック／新版検出で即切り替え／復帰時も再チェック）
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", function () {
     navigator.serviceWorker.register("./sw.js").then(function (reg) {
